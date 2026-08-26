@@ -1,6 +1,11 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { validateCredentials, createSession, userToPublic } from '$lib/server/db/auth';
+import {
+	isLoginRateLimited,
+	recordFailedLogin,
+	clearFailedLogins
+} from '$lib/server/db/rate-limit';
 
 export const POST: RequestHandler = async ({ request, cookies, platform }) => {
 	if (!platform?.env?.DB) {
@@ -21,11 +26,18 @@ export const POST: RequestHandler = async ({ request, cookies, platform }) => {
 	}
 
 	try {
+		if (await isLoginRateLimited(db, input.email)) {
+			return json({ error: 'Too many failed login attempts. Try again later.' }, { status: 429 });
+		}
+
 		const user = await validateCredentials(db, input.email, input.password);
 
 		if (!user) {
+			await recordFailedLogin(db, input.email);
 			return json({ error: 'Invalid email or password' }, { status: 401 });
 		}
+
+		await clearFailedLogins(db, input.email);
 
 		// Create session
 		const session = await createSession(db, user.id);

@@ -10,6 +10,7 @@ import { runCheck } from '$lib/server/checkers';
 import { sendNotifications } from '$lib/server/notifications';
 import { aggregateDailyStatus, cleanupOldDailyStatus } from '$lib/server/db/status';
 import type { MonitorStatus } from '$lib/types/monitor';
+import { timingSafeEqualString } from '$lib/server/crypto';
 
 // KV caching disabled to stay within free tier limits (1000 puts/day)
 // D1 queries are fast enough for small-scale monitoring
@@ -19,7 +20,7 @@ export const GET: RequestHandler = async ({ platform, request }) => {
 	const cronSecret = platform?.env?.CRON_SECRET;
 	const providedSecret = request.headers.get('X-Cron-Secret');
 
-	if (!cronSecret || providedSecret !== cronSecret) {
+	if (!cronSecret || !providedSecret || !timingSafeEqualString(providedSecret, cronSecret)) {
 		return json({ error: 'Forbidden' }, { status: 403 });
 	}
 

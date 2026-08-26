@@ -1,22 +1,10 @@
 import type { User, Session, CreateUserInput, UserPublic, UserRole } from '$lib/types/auth';
+import { hashPassword, verifyPassword, needsRehash } from '$lib/server/crypto';
 
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function generateId(): string {
 	return crypto.randomUUID();
-}
-
-async function hashPassword(password: string): Promise<string> {
-	const encoder = new TextEncoder();
-	const data = encoder.encode(password);
-	const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-	const hashArray = Array.from(new Uint8Array(hashBuffer));
-	return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function verifyPassword(password: string, hash: string): Promise<boolean> {
-	const passwordHash = await hashPassword(password);
-	return passwordHash === hash;
 }
 
 export async function isAppSetup(db: D1Database): Promise<boolean> {
@@ -142,6 +130,12 @@ export async function validateCredentials(
 
 	const isValid = await verifyPassword(password, user.password_hash);
 	if (!isValid) return null;
+
+	// The password is known-good here, so it is the only chance to migrate a
+	// legacy hash to the current scheme without asking the user to reset it.
+	if (needsRehash(user.password_hash)) {
+		await updateUserPassword(db, user.id, password);
+	}
 
 	// Update last login
 	await db
