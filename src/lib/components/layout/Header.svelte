@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import type { UserPublic } from '$lib/types/auth';
+	import MicelioLogo from '$lib/components/MicelioLogo.svelte';
 
 	let { user = undefined }: { user?: UserPublic | null } = $props();
 
@@ -45,17 +46,8 @@
 	<div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 		<div class="flex items-center gap-8">
 			<a href="/" class="flex items-center gap-2">
-				<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white">
-					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-						></path>
-					</svg>
-				</div>
-				<span class="text-lg font-semibold text-gray-900">Pingflare</span>
+				<MicelioLogo class="h-8 w-8" />
+				<span class="text-lg font-semibold text-[#1E3A5F]">Micelio Status</span>
 			</a>
 
 			<nav class="flex items-center gap-1">

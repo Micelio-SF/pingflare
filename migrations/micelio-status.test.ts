@@ -10,6 +10,7 @@ function createSeededDatabase(): Database {
 	const database = new Database(':memory:');
 	database.exec(readFileSync(join(migrationsDirectory, '0001_schema.sql'), 'utf8'));
 	database.exec(readFileSync(join(migrationsDirectory, '0002_micelio_status.sql'), 'utf8'));
+	database.exec(readFileSync(join(migrationsDirectory, '0003_english_status_labels.sql'), 'utf8'));
 	return database;
 }
 
@@ -25,8 +26,8 @@ describe('Micelio status seed', () => {
 		expect(groups).toEqual([
 			{ name: 'Micelio', slug: 'micelio', is_public: 1, display_order: 10 },
 			{
-				name: 'Dependencias externas',
-				slug: 'dependencias-externas',
+				name: 'External dependencies',
+				slug: 'external-dependencies',
 				is_public: 1,
 				display_order: 20
 			}
@@ -49,44 +50,49 @@ describe('Micelio status seed', () => {
 		}>;
 
 		expect(monitors.map(({ name }) => name)).toEqual([
-			'API pública de Micelio',
 			'Google Gemini API',
+			'Micelio Public API',
+			'Micelio Website',
 			'OpenRouter API',
-			'Servicio de Impuestos Internos',
-			'Web de Micelio'
+			'SII'
 		]);
 		expect(monitors.every(({ active }) => active === 1)).toBe(true);
 		expect(monitors.every(({ interval_seconds }) => interval_seconds === 60)).toBe(true);
 		expect(monitors.every(({ timeout_ms }) => timeout_ms === 15000)).toBe(true);
 		expect(monitors.every(({ script }) => validateScript(script).valid)).toBe(true);
 		expect(monitors.map(({ group_id }) => group_id)).toEqual([
+			'micelio-dependencies',
+			'micelio-services',
 			'micelio-services',
 			'micelio-dependencies',
-			'micelio-dependencies',
-			'micelio-dependencies',
-			'micelio-services'
+			'micelio-dependencies'
 		]);
 
 		const scripts = monitors.map(({ script }) => JSON.parse(script));
 		const urls = scripts.map(({ steps }) => steps[0].request.url);
 		const methods = scripts.map(({ steps }) => steps[0].request.method);
 		expect(urls).toEqual([
-			'https://api.micelio.ai/',
 			'https://generativelanguage.googleapis.com/v1beta/models',
+			'https://api.micelio.ai/',
+			'https://micelio.ai/',
 			'https://openrouter.ai/api/v1/models',
-			'https://homer.sii.cl/',
-			'https://micelio.ai/'
+			'https://homer.sii.cl/'
 		]);
-		expect(methods).toEqual(['GET', 'GET', 'HEAD', 'GET', 'GET']);
+		expect(methods).toEqual(['GET', 'GET', 'GET', 'HEAD', 'GET']);
 		expect(scripts.map(({ steps }) => steps[0].assert)).toEqual([
+			[
+				{ check: 'status', equals: 403, severity: 'down' },
+				{ check: 'body', contains: 'PERMISSION_DENIED', severity: 'down' },
+				{ check: 'responseTime', lessThan: 5000, severity: 'degraded' }
+			],
 			[
 				{ check: 'status', equals: 200, severity: 'down' },
 				{ check: 'json.status', equals: 'public', severity: 'down' },
 				{ check: 'responseTime', lessThan: 5000, severity: 'degraded' }
 			],
 			[
-				{ check: 'status', equals: 403, severity: 'down' },
-				{ check: 'body', contains: 'PERMISSION_DENIED', severity: 'down' },
+				{ check: 'status', equals: 200, severity: 'down' },
+				{ check: 'body', contains: 'Micelio', severity: 'down' },
 				{ check: 'responseTime', lessThan: 5000, severity: 'degraded' }
 			],
 			[
@@ -97,11 +103,6 @@ describe('Micelio status seed', () => {
 				{ check: 'status', equals: 200, severity: 'down' },
 				{ check: 'body', contains: 'Servicio de Impuestos Internos', severity: 'down' },
 				{ check: 'responseTime', lessThan: 10000, severity: 'degraded' }
-			],
-			[
-				{ check: 'status', equals: 200, severity: 'down' },
-				{ check: 'body', contains: 'Micelio', severity: 'down' },
-				{ check: 'responseTime', lessThan: 5000, severity: 'degraded' }
 			]
 		]);
 	});

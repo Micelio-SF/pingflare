@@ -47,7 +47,7 @@
 </script>
 
 <svelte:head>
-	<title>Status Overview - Pingflare</title>
+	<title>Status Overview - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

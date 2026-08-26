@@ -87,7 +87,7 @@
 </script>
 
 <svelte:head>
-	<title>Notifications - Pingflare</title>
+	<title>Notifications - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

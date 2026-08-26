@@ -136,7 +136,7 @@
 </script>
 
 <svelte:head>
-	<title>Manage Groups - Pingflare</title>
+	<title>Manage Groups - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

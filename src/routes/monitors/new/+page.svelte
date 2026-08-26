@@ -59,7 +59,7 @@
 </script>
 
 <svelte:head>
-	<title>Add Monitor - Pingflare</title>
+	<title>Add Monitor - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

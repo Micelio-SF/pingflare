@@ -9,18 +9,18 @@ self.addEventListener('push', (event) => {
 		data = event.data.json();
 	} catch {
 		data = {
-			title: 'Pingflare Alert',
+			title: 'Micelio Status Alert',
 			body: event.data.text()
 		};
 	}
 
-	const title = data.title || 'Pingflare Alert';
+	const title = data.title || 'Micelio Status Alert';
 	const options = {
 		body: data.body || '',
 		icon: data.icon || '/favicon.png',
 		badge: data.badge || '/favicon.png',
 		data: data.data || {},
-		tag: data.tag || 'pingflare-notification',
+		tag: data.tag || 'micelio-status-notification',
 		requireInteraction: true,
 		vibrate: [200, 100, 200]
 	};

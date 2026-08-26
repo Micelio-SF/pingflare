@@ -15,29 +15,24 @@ export default defineConfig({
 				includeVersionFile: true
 			},
 			manifest: {
-				name: 'Pingflare',
-				short_name: 'Pingflare',
-				description: 'Pingflare Application',
-				theme_color: '#ffffff',
+				name: 'Micelio Status',
+				short_name: 'Micelio',
+				description: 'Micelio service status and uptime monitoring',
+				theme_color: '#1E3A5F',
 				background_color: '#ffffff',
 				display: 'standalone',
 				scope: '/',
 				start_url: '/',
 				icons: [
 					{
-						src: '/pwa-192x192.png',
-						sizes: '192x192',
-						type: 'image/png'
+						src: '/icon.svg',
+						sizes: 'any',
+						type: 'image/svg+xml'
 					},
 					{
-						src: '/pwa-512x512.png',
-						sizes: '512x512',
-						type: 'image/png'
-					},
-					{
-						src: '/pwa-maskable-512x512.png',
-						sizes: '512x512',
-						type: 'image/png',
+						src: '/icon-maskable.svg',
+						sizes: 'any',
+						type: 'image/svg+xml',
 						purpose: 'maskable'
 					}
 				]

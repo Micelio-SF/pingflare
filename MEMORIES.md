@@ -8,6 +8,13 @@ Tooling
 - Check command: bun check
 - PWA support: @vite-pwa/sveltekit
 
+Branding
+
+- Public product name: Micelio Status
+- Canonical logo source: ../micelio/frontend/public/logo.svg
+- Brand colors: navy #1E3A5F, mint #74C69D, overlap #45797B
+- User-facing status and dependency copy is English; preserve external service names and literal response assertions such as SII content
+
 Build & Deploy
 
 - Build: bun run build (SvelteKit + custom worker bundling via esbuild)

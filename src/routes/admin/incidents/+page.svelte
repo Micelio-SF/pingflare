@@ -157,7 +157,7 @@
 </script>
 
 <svelte:head>
-	<title>Manage Incidents - Pingflare</title>
+	<title>Manage Incidents - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

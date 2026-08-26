@@ -59,7 +59,7 @@
 </script>
 
 <svelte:head>
-	<title>Edit {data.monitor.name} - Pingflare</title>
+	<title>Edit {data.monitor.name} - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

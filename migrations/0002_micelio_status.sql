@@ -2,8 +2,8 @@
 
 INSERT INTO monitor_groups (id, name, slug, description, is_public, display_order)
 VALUES
-  ('micelio-services', 'Micelio', 'micelio', 'Disponibilidad de los servicios públicos de Micelio.', 1, 10),
-  ('micelio-dependencies', 'Dependencias externas', 'dependencias-externas', 'Servicios de terceros necesarios para operar Micelio.', 1, 20)
+  ('micelio-services', 'Micelio', 'micelio', 'Availability of Micelio public services.', 1, 10),
+  ('micelio-dependencies', 'External dependencies', 'external-dependencies', 'Third-party services required to operate Micelio.', 1, 20)
 ON CONFLICT(id) DO UPDATE SET
   name = excluded.name,
   slug = excluded.slug,
@@ -15,7 +15,7 @@ INSERT INTO monitors (id, name, script, group_id, interval_seconds, timeout_ms, 
 VALUES
   (
     'micelio-public-api',
-    'API pública de Micelio',
+    'Micelio Public API',
     '{"steps":[{"name":"public_api","request":{"method":"GET","url":"https://api.micelio.ai/"},"assert":[{"check":"status","equals":200,"severity":"down"},{"check":"json.status","equals":"public","severity":"down"},{"check":"responseTime","lessThan":5000,"severity":"degraded"}]}]}',
     'micelio-services',
     60,
@@ -24,7 +24,7 @@ VALUES
   ),
   (
     'micelio-web',
-    'Web de Micelio',
+    'Micelio Website',
     '{"steps":[{"name":"website","request":{"method":"GET","url":"https://micelio.ai/"},"assert":[{"check":"status","equals":200,"severity":"down"},{"check":"body","contains":"Micelio","severity":"down"},{"check":"responseTime","lessThan":5000,"severity":"degraded"}]}]}',
     'micelio-services',
     60,
@@ -33,7 +33,7 @@ VALUES
   ),
   (
     'sii-landing',
-    'Servicio de Impuestos Internos',
+    'SII',
     '{"steps":[{"name":"landing","request":{"method":"GET","url":"https://homer.sii.cl/"},"assert":[{"check":"status","equals":200,"severity":"down"},{"check":"body","contains":"Servicio de Impuestos Internos","severity":"down"},{"check":"responseTime","lessThan":10000,"severity":"degraded"}]}]}',
     'micelio-dependencies',
     60,

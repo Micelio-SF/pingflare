@@ -117,7 +117,7 @@
 </script>
 
 <svelte:head>
-	<title>Settings - Pingflare</title>
+	<title>Settings - Micelio Status</title>
 </svelte:head>
 
 <AppShell user={data.user}>

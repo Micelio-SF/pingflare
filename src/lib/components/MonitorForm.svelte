@@ -109,7 +109,7 @@
 	}
 
 	function openClaudeHelp() {
-		const prompt = `I need help creating a health check script for Pingflare monitoring. Please generate a JSON DSL script based on my requirements.
+		const prompt = `I need help creating a health check script for Micelio Status monitoring. Please generate a JSON DSL script based on my requirements.
 
 The DSL format is:
 {

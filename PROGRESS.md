@@ -1,3 +1,8 @@
+Rebrand the monitoring interface as Micelio Status and standardize dependency copy in English.
+- Added the canonical Micelio navy-and-mint logo across navigation, authentication, public status, favicon, and PWA assets.
+- Translated seeded group descriptions and monitor labels while preserving SII and its required response assertion.
+- Added `migrations/0003_english_status_labels.sql` to update existing D1 deployments.
+
 Project initialized with SvelteKit scaffold.
 
 - Fresh project setup with Svelte 5, TypeScript, Tailwind CSS 4, ESLint, Prettier
