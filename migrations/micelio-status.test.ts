@@ -12,6 +12,7 @@ function createSeededDatabase(): Database {
 	database.exec(readFileSync(join(migrationsDirectory, '0002_micelio_status.sql'), 'utf8'));
 	database.exec(readFileSync(join(migrationsDirectory, '0003_english_status_labels.sql'), 'utf8'));
 	database.exec(readFileSync(join(migrationsDirectory, '0005_gemini_via_openrouter.sql'), 'utf8'));
+	database.exec(readFileSync(join(migrationsDirectory, '0006_micelio_database.sql'), 'utf8'));
 	return database;
 }
 
@@ -35,7 +36,7 @@ describe('Micelio status seed', () => {
 		]);
 	});
 
-	it('creates six active monitors with valid scripts and stable endpoints', () => {
+	it('creates seven active monitors with valid scripts and stable endpoints', () => {
 		const database = createSeededDatabase();
 		const monitors = database
 			.query(
@@ -53,6 +54,7 @@ describe('Micelio status seed', () => {
 		expect(monitors.map(({ name }) => name)).toEqual([
 			'Gemini via OpenRouter',
 			'Google Gemini API',
+			'Micelio Database',
 			'Micelio Public API',
 			'Micelio Website',
 			'OpenRouter API',
@@ -67,6 +69,7 @@ describe('Micelio status seed', () => {
 			'micelio-dependencies',
 			'micelio-services',
 			'micelio-services',
+			'micelio-services',
 			'micelio-dependencies',
 			'micelio-dependencies'
 		]);
@@ -77,12 +80,13 @@ describe('Micelio status seed', () => {
 		expect(urls).toEqual([
 			'https://openrouter.ai/api/v1/models/google/gemini-2.5-flash/endpoints',
 			'https://generativelanguage.googleapis.com/v1beta/models',
+			'https://api.micelio.ai/api/db-health',
 			'https://api.micelio.ai/',
 			'https://micelio.ai/',
 			'https://openrouter.ai/api/v1/models',
 			'https://homer.sii.cl/'
 		]);
-		expect(methods).toEqual(['GET', 'GET', 'GET', 'GET', 'HEAD', 'GET']);
+		expect(methods).toEqual(['GET', 'GET', 'GET', 'GET', 'GET', 'HEAD', 'GET']);
 		expect(scripts.map(({ steps }) => steps[0].assert)).toEqual([
 			[
 				{ check: 'status', equals: 200, severity: 'down' },
@@ -99,6 +103,11 @@ describe('Micelio status seed', () => {
 			[
 				{ check: 'status', equals: 403, severity: 'down' },
 				{ check: 'body', contains: 'PERMISSION_DENIED', severity: 'down' },
+				{ check: 'responseTime', lessThan: 5000, severity: 'degraded' }
+			],
+			[
+				{ check: 'status', equals: 200, severity: 'down' },
+				{ check: 'json.database', equals: 'up', severity: 'down' },
 				{ check: 'responseTime', lessThan: 5000, severity: 'degraded' }
 			],
 			[
@@ -127,10 +136,11 @@ describe('Micelio status seed', () => {
 		const database = createSeededDatabase();
 		database.exec(readFileSync(join(migrationsDirectory, '0002_micelio_status.sql'), 'utf8'));
 		database.exec(readFileSync(join(migrationsDirectory, '0005_gemini_via_openrouter.sql'), 'utf8'));
+		database.exec(readFileSync(join(migrationsDirectory, '0006_micelio_database.sql'), 'utf8'));
 
 		expect(database.query('SELECT COUNT(*) AS count FROM monitor_groups').get()).toEqual({
 			count: 2
 		});
-		expect(database.query('SELECT COUNT(*) AS count FROM monitors').get()).toEqual({ count: 6 });
+		expect(database.query('SELECT COUNT(*) AS count FROM monitors').get()).toEqual({ count: 7 });
 	});
 });

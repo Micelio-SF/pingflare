@@ -385,3 +385,10 @@ Added a Gemini-through-OpenRouter monitor to the status page.
 - migrations/0005_gemini_via_openrouter.sql: Checks OpenRouter's anonymous /models/google/gemini-2.5-flash/endpoints for a healthy Google endpoint, asserting endpoint status 0 as down and uptime_last_30m below ninety as degraded.
 - migrations/micelio-status.test.ts: Extended the seed test to six monitors covering the new endpoint, method, and assertions.
 - Verified locally against wrangler dev and local D1: /api/cron reported all six monitors up and rejected wrong or missing cron secrets with 403.
+
+Added a Micelio database monitor to the status page.
+
+- migrations/0006_micelio_database.sql: Probes https://api.micelio.ai/api/db-health, asserting a 200 and json.database of up as down conditions, with responseTime over five seconds as degraded.
+- migrations/micelio-status.test.ts: Extended the seed test to seven monitors covering the new endpoint, method, group and assertions.
+- TRADEOFF: The endpoint is rate limited to one request per thirty seconds per client, so a 429 would read as down; the sixty second interval leaves headroom, revisit if the check ever flaps.
+

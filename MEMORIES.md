@@ -198,6 +198,7 @@ Micelio Status
 - External checks avoid billable inference: OpenRouter uses HEAD /api/v1/models; Gemini expects anonymous 403 PERMISSION_DENIED
 - Gemini-through-OpenRouter is checked via the anonymous GET /api/v1/models/google/gemini-2.5-flash/endpoints; OpenRouter publishes per-provider status (0 is healthy, negative is deranked) plus uptime_last_5m/30m and latency, so no key or inference is needed
 - A true end-to-end OpenRouter inference check needs ${env.SECRET} interpolation in the DSL first; monitor scripts are stored as plaintext in D1 and shown in the admin UI
+- The database is probed through https://api.micelio.ai/api/db-health, an unauthenticated public API route that runs SELECT 1 and returns {"database":"up"}, rate limited to one request per thirty seconds per client IP
 - Seed configuration lives in migrations/0002_micelio_status.sql and is covered by migrations/micelio-status.test.ts
 
 Auth
