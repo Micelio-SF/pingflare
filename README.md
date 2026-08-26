@@ -1,6 +1,6 @@
 # Pingflare
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isala404/pingflare)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Micelio-SF/pingflare)
 
 Self-hosted uptime monitoring that runs entirely on Cloudflare's edge network. No servers to maintain, no infrastructure to manage — just click deploy.
 
@@ -57,6 +57,17 @@ Get alerted when things break:
 
 ## Quick Start
 
+### Micelio defaults
+
+Fresh deployments apply `migrations/0002_micelio_status.sql`, which creates two public groups and five active one-minute monitors:
+
+- **Micelio:** `https://api.micelio.ai/` and `https://micelio.ai/`
+- **External dependencies:** the SII landing page, a `HEAD` request to OpenRouter's public models endpoint, and Gemini's unauthenticated models endpoint
+
+The OpenRouter and Gemini checks do not invoke a model, consume tokens, or require API keys. Gemini intentionally expects the API gateway's `403 PERMISSION_DENIED` response for an anonymous request. This verifies DNS, TLS, routing, and the Gemini API gateway without billable inference.
+
+Micelio's PostgreSQL database is not monitored directly. The public API root does not query the database, and exposing database credentials to Pingflare would be unsafe. A real database monitor requires a minimal public backend probe that executes a bounded `SELECT 1` and returns no infrastructure details. That endpoint must be added in the Micelio application repository before a database monitor can be enabled here.
+
 ### One-Click Deploy
 
 1. Click the **Deploy to Cloudflare** button above
@@ -68,7 +79,7 @@ Get alerted when things break:
 ### Manual Setup
 
 ```bash
-git clone https://github.com/isala404/pingflare.git
+git clone https://github.com/Micelio-SF/pingflare.git
 cd pingflare
 bun install
 wrangler login

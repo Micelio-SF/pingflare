@@ -182,6 +182,14 @@ Not Yet Implemented
 - Email and Telegram notification channels
 - TCP/DNS checkers (scaffolded)
 - Downtime threshold enforcement per channel (schema ready, cron not fully integrated)
+- Micelio database health monitoring requires a public, bounded backend probe; never expose database credentials to Pingflare
+
+Micelio Status
+
+- Public website: https://micelio.ai/
+- Public API health response: https://api.micelio.ai/ returns {"status":"public"}
+- External checks avoid billable inference: OpenRouter uses HEAD /api/v1/models; Gemini expects anonymous 403 PERMISSION_DENIED
+- Seed configuration lives in migrations/0002_micelio_status.sql and is covered by migrations/micelio-status.test.ts
 
 User Preferences
 

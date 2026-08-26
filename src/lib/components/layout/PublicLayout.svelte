@@ -1,12 +1,13 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { PUBLIC_STATUS_TITLE } from '$lib/config/brand';
 
 	interface Props {
 		title?: string;
 		children: Snippet;
 	}
 
-	let { title = 'System Status', children }: Props = $props();
+	let { title = PUBLIC_STATUS_TITLE, children }: Props = $props();
 </script>
 
 <div class="min-h-screen bg-gray-50">

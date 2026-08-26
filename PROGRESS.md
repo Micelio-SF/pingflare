@@ -355,3 +355,11 @@ Fixed critical API authentication vulnerability - all admin endpoints now requir
 - wrangler.toml: documented CRON_SECRET requirement
 - README.md: added CRON_SECRET setup instructions to Quick Start
 - Public endpoints: /api/public/*, /api/auth/*
+
+Configured the Micelio status page with seeded service monitors.
+
+- migrations/0002_micelio_status.sql: Added idempotent public groups and one-minute checks for Micelio API/web, SII, OpenRouter, and Gemini.
+- migrations/micelio-status.test.ts: Verifies seeded groups, monitor settings, endpoints, methods, and DSL validity in an in-memory database.
+- src/lib/config/brand.ts and public status components: Added Micelio-specific title and metadata while retaining Pingflare attribution.
+- package.json: Aligned test scripts with the existing bun:test suite.
+- README.md: Pointed deployment instructions at the Micelio-SF fork and documented zero-token checks and the database-probe limitation.

@@ -4,6 +4,7 @@
 	import type { OverallStatus, StatusMonitor } from '$lib/types/status';
 	import { getOverallStatus, getOverallStatusText, getOverallStatusColor } from '$lib/types/status';
 	import PublicLayout from '$lib/components/layout/PublicLayout.svelte';
+	import { PUBLIC_STATUS_DESCRIPTION, PUBLIC_STATUS_TITLE } from '$lib/config/brand';
 
 	let { data }: { data: PageData } = $props();
 
@@ -50,7 +51,8 @@
 </script>
 
 <svelte:head>
-	<title>System Status</title>
+	<title>{PUBLIC_STATUS_TITLE}</title>
+	<meta name="description" content={PUBLIC_STATUS_DESCRIPTION} />
 </svelte:head>
 
 <PublicLayout>
