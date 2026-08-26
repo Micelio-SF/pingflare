@@ -196,7 +196,15 @@ Micelio Status
 - Public website: https://micelio.ai/
 - Public API health response: https://api.micelio.ai/ returns {"status":"public"}
 - External checks avoid billable inference: OpenRouter uses HEAD /api/v1/models; Gemini expects anonymous 403 PERMISSION_DENIED
+- Gemini-through-OpenRouter is checked via the anonymous GET /api/v1/models/google/gemini-2.5-flash/endpoints; OpenRouter publishes per-provider status (0 is healthy, negative is deranked) plus uptime_last_5m/30m and latency, so no key or inference is needed
+- A true end-to-end OpenRouter inference check needs ${env.SECRET} interpolation in the DSL first; monitor scripts are stored as plaintext in D1 and shown in the admin UI
 - Seed configuration lives in migrations/0002_micelio_status.sql and is covered by migrations/micelio-status.test.ts
+
+Auth
+
+- Password hashes are self-describing: pbkdf2$iterations$saltB64$digestB64, hashed in src/lib/server/crypto.ts; bare 64-hex values are legacy SHA-256 and are rewritten to PBKDF2 on the next successful login
+- Login rate limiting lives in the login_attempts table, keyed by lowercased email, ten failures per fifteen minutes
+- Secrets and password hashes are compared with timingSafeEqual, never with ===
 
 User Preferences
 

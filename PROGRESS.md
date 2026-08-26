@@ -368,3 +368,20 @@ Configured the Micelio status page with seeded service monitors.
 - src/lib/config/brand.ts and public status components: Added Micelio-specific title and metadata while retaining Pingflare attribution.
 - package.json: Aligned test scripts with the existing bun:test suite.
 - README.md: Pointed deployment instructions at the Micelio-SF fork and documented zero-token checks and the database-probe limitation.
+
+Hardened authentication against offline and online password attacks.
+
+- src/lib/server/crypto.ts: Added PBKDF2-SHA256 hashing (100k iterations, per-password salt) with the self-describing format pbkdf2$iterations$salt$digest, constant-time comparison helpers, and needsRehash.
+- src/lib/server/db/auth.ts: Delegated hashing to the crypto module and rewrote legacy SHA-256 hashes to PBKDF2 on the next successful login, so no password reset is required.
+- src/routes/api/cron/+server.ts: Compared CRON_SECRET in constant time instead of with strict equality.
+- migrations/0004_login_attempts.sql and src/lib/server/db/rate-limit.ts: Added failed-login tracking; ten failures per email in fifteen minutes return 429, cleared on success and pruned after twenty-four hours.
+- src/lib/server/crypto.test.ts: Covers hashing, verification, legacy acceptance, malformed input, and rehash detection.
+- .gitignore: Ignored .dev.vars so local Cloudflare secrets cannot be committed.
+- TRADEOFF: Rate limiting keys on email only, which locks the account under attack rather than the attacker → add a CF-Connecting-IP key if abuse from rotating hosts appears.
+- TRADEOFF: Iterations capped at 100k to stay inside the Workers PBKDF2 limit and free-tier CPU budget → raise once on a paid plan.
+
+Added a Gemini-through-OpenRouter monitor to the status page.
+
+- migrations/0005_gemini_via_openrouter.sql: Checks OpenRouter's anonymous /models/google/gemini-2.5-flash/endpoints for a healthy Google endpoint, asserting endpoint status 0 as down and uptime_last_30m below ninety as degraded.
+- migrations/micelio-status.test.ts: Extended the seed test to six monitors covering the new endpoint, method, and assertions.
+- Verified locally against wrangler dev and local D1: /api/cron reported all six monitors up and rejected wrong or missing cron secrets with 403.
