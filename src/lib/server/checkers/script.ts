@@ -208,6 +208,8 @@ async function executeStep(
 	timeoutMs: number
 ): Promise<StepResult> {
 	const startTime = performance.now();
+	const controller = new AbortController();
+	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
 	try {
 		// Interpolate variables in URL
@@ -237,8 +239,6 @@ async function executeStep(
 		}
 
 		// Make request
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
 		const response = await fetch(url, {
 			method: step.request.method,
@@ -247,16 +247,24 @@ async function executeStep(
 			signal: controller.signal
 		});
 
-		clearTimeout(timeoutId);
-
+		const paths = [
+			...(step.assert ?? []).map((assertion) => assertion.check),
+			...Object.values(step.extract ?? {})
+		];
+		const needsJson = paths.some((path) => path === 'json' || path.startsWith('json.'));
+		const needsBody =
+			needsJson || paths.some((path) => path === 'body' || path.startsWith('body.'));
+		const responseText = needsBody ? await readBoundedBody(response) : '';
+		if (!needsBody) await response.body?.cancel().catch(() => {});
 		const endTime = performance.now();
-		const responseText = await response.text();
 
 		let json: unknown = null;
-		try {
-			json = JSON.parse(responseText);
-		} catch {
-			// Not JSON
+		if (needsJson) {
+			try {
+				json = JSON.parse(responseText);
+			} catch {
+				// Invalid JSON is handled by the script's assertions.
+			}
 		}
 
 		const responseHeaders: Record<string, string> = {};
@@ -301,6 +309,8 @@ async function executeStep(
 			error: err instanceof Error ? err.message : 'Request failed',
 			assertions: []
 		};
+	} finally {
+		clearTimeout(timeoutId);
 	}
 }
 
@@ -592,5 +602,26 @@ export function validateScript(script: string): { valid: boolean; error?: string
 		return { valid: true };
 	} catch (err) {
 		return { valid: false, error: err instanceof Error ? err.message : 'Invalid script' };
+	}
+}
+
+// Bound downloaded bytes before decoding or parsing untrusted monitor responses.
+async function readBoundedBody(response: Response): Promise<string> {
+	const reader = response.body?.getReader();
+	if (!reader) return '';
+	const decoder = new TextDecoder();
+	let bytes = 0;
+	let text = '';
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) return text + decoder.decode();
+			bytes += value.byteLength;
+			if (bytes > 1024 * 1024) throw new Error('Response body exceeds 1 MiB limit');
+			text += decoder.decode(value, { stream: true });
+		}
+	} finally {
+		await reader.cancel();
+		reader.releaseLock();
 	}
 }

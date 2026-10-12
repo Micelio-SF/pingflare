@@ -25,3 +25,8 @@ ENVIRONMENT = "production"
 # Required secrets (set via `wrangler secret put`):
 # - CRON_SECRET: Random string to authenticate scheduled health checks
 #   Generate with: openssl rand -hex 32
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1

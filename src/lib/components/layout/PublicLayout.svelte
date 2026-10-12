@@ -16,10 +16,11 @@
 	<header class="border-b border-gray-200 bg-white">
 		<div class="mx-auto max-w-4xl px-4 py-4 sm:px-6">
 			<div class="flex items-center justify-between">
-				<a href="/status" class="flex items-center gap-2">
+				<a href="/" class="flex items-center gap-2">
 					<MicelioLogo class="h-8 w-8" />
 					<span class="text-xl font-bold text-[#1E3A5F]">{title}</span>
 				</a>
+				<a href="/login" class="text-sm text-gray-600 hover:text-gray-900">Sign in</a>
 			</div>
 		</div>
 	</header>

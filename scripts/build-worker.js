@@ -58,11 +58,19 @@ import svelteKitHandler from './cloudflare/_worker.js';
 
 export default {
 	async fetch(request, env, ctx) {
-		return svelteKitHandler.fetch(request, env, ctx);
+		const startedAt = Date.now();
+		try {
+			const response = await svelteKitHandler.fetch(request, env, ctx);
+			console.info({ event: 'request_completed', method: request.method, pathname: new URL(request.url).pathname, status: response.status, duration_ms: Date.now() - startedAt });
+			return response;
+		} catch (error) {
+			console.error({ event: 'request_failed', method: request.method, pathname: new URL(request.url).pathname, error_type: error instanceof Error ? error.name : 'UnknownError', duration_ms: Date.now() - startedAt });
+			throw error;
+		}
 	},
 
 	async scheduled(controller, env, ctx) {
-		console.log('[Scheduler] Triggering health checks at ' + new Date().toISOString());
+		console.info({ event: 'scheduled_started', scheduled_time: controller.scheduledTime, cron: controller.cron });
 
 		if (!env.CRON_SECRET) {
 			console.error('[Scheduler] CRON_SECRET not configured');
@@ -80,13 +88,14 @@ export default {
 		try {
 			const response = await svelteKitHandler.fetch(request, env, ctx);
 			if (!response.ok) {
-				console.error('[Scheduler] Cron endpoint returned ' + response.status);
-				return;
+				console.error({ event: 'scheduled_failed', status: response.status });
+				throw new Error('Cron endpoint failed');
 			}
 			const result = await response.json();
-			console.log('[Scheduler] Health checks completed:', JSON.stringify(result));
+			console.info({ event: 'scheduled_completed', checked: result.checked, successful: result.successful, failed: result.failed });
 		} catch (error) {
-			console.error('[Scheduler] Failed to trigger health checks:', error);
+			console.error({ event: 'scheduled_failed', error_type: error instanceof Error ? error.name : 'UnknownError' });
+			throw error;
 		}
 	}
 };

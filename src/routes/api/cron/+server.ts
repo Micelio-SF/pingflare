@@ -1,3 +1,4 @@
+import { isMonitorDue } from '$lib/server/scheduling';
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import {
@@ -28,6 +29,8 @@ export const GET: RequestHandler = async ({ platform, request }) => {
 		return json({ error: 'Database not available' }, { status: 500 });
 	}
 
+	const startedAt = Date.now();
+	const runId = crypto.randomUUID();
 	const db = platform.env.DB;
 	const monitors = await getActiveMonitors(db);
 
@@ -38,9 +41,18 @@ export const GET: RequestHandler = async ({ platform, request }) => {
 	const results = await Promise.allSettled(
 		monitors.map(async (monitor) => {
 			const lastCheck = await getLastCheck(db, monitor.id);
+			if (!isMonitorDue(lastCheck?.checked_at, monitor.interval_seconds, Date.now())) return null;
 			const previousStatus: MonitorStatus | null = lastCheck?.status ?? null;
 
 			const result = await runCheck(monitor);
+			console.info({
+				event: 'monitor_completed',
+				run_id: runId,
+				monitor_id: monitor.id,
+				status: result.status,
+				status_code: result.statusCode,
+				duration_ms: result.responseTimeMs
+			});
 			await insertCheck(
 				db,
 				monitor.id,
@@ -75,7 +87,7 @@ export const GET: RequestHandler = async ({ platform, request }) => {
 		})
 	);
 
-	const successful = results.filter((r) => r.status === 'fulfilled').length;
+	const successful = results.filter((r) => r.status === 'fulfilled' && r.value !== null).length;
 	const failed = results.filter((r) => r.status === 'rejected').length;
 
 	const checkResults = results.map((r) => {
@@ -85,9 +97,9 @@ export const GET: RequestHandler = async ({ platform, request }) => {
 		return { error: r.reason?.message || 'Unknown error' };
 	});
 
-	// Run daily aggregation and cleanup at midnight (hour 0, minute 0-5)
+	// Run daily aggregation and cleanup at midnight UTC.
 	const now = new Date();
-	if (now.getHours() === 0 && now.getMinutes() <= 5) {
+	if (now.getUTCHours() === 0 && now.getUTCMinutes() === 0) {
 		try {
 			await aggregateDailyStatus(db);
 			// Clean up old raw checks (keep 7 days) and old daily status (keep 365 days)
@@ -98,9 +110,27 @@ export const GET: RequestHandler = async ({ platform, request }) => {
 		}
 	}
 
+	console.info({
+		event: 'cron_completed',
+		run_id: runId,
+		successful,
+		failed,
+		skipped: monitors.length - successful - failed,
+		duration_ms: Date.now() - startedAt
+	});
+	for (const [index, result] of results.entries()) {
+		if (result.status === 'rejected')
+			console.error({
+				event: 'monitor_failed',
+				run_id: runId,
+				monitor_id: monitors[index].id,
+				error_type: result.reason instanceof Error ? result.reason.name : 'UnknownError'
+			});
+	}
 	return json({
 		message: 'Checks completed',
-		checked: monitors.length,
+		checked: successful + failed,
+		skipped: monitors.length - successful - failed,
 		successful,
 		failed,
 		results: checkResults

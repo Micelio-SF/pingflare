@@ -392,3 +392,15 @@ Added a Micelio database monitor to the status page.
 - migrations/micelio-status.test.ts: Extended the seed test to seven monitors covering the new endpoint, method, group and assertions.
 - TRADEOFF: The endpoint is rate limited to one request per thirty seconds per client, so a 429 would read as down; the sixty second interval leaves headroom, revisit if the check ever flaps.
 
+
+Move public status to / and add Worker diagnostics with bounded monitor work.
+- Relocate dashboard to /dashboard; preserve /login and /status group pages; update navigation and redirects.
+- Enable Workers persisted/invocation logs; add structured request, scheduler and per-monitor events without bodies, query strings or credentials.
+- Respect monitor intervals, run midnight maintenance once per cron window, avoid unused body parsing and cap body reads at 1 MiB under the request timeout.
+- Verify 38 unit tests, type check (0 errors; 11 existing warnings), build, Wrangler dry-run and six local D1 migrations; changed-file lint passes, global lint has existing unkeyed-each errors.
+- TODO: Diagnose Cloudflare failed deployment after dashboard login; deploy backend /api/db-health (currently 404) before expecting database monitor success.
+
+Relocate checkout beside Micelio and implement its backend database probe.
+- Move checkout to /home/victor/Documentos/Coding/micelio-status; backend changes live in sibling micelio on codex/db-health-probe.
+- Add /api/db-health with bounded read-only query and existing rate limiter; four Docker tests and Ruff pass.
+- TODO: Deploy backend probe and inspect Cloudflare failed build after dashboard login.

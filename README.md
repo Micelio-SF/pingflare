@@ -113,3 +113,23 @@ Contributions welcome! Feel free to open issues and pull requests.
 ## License
 
 MIT
+
+### Worker diagnostics
+
+Workers Logs and invocation logs are enabled in `wrangler.toml`. Deploy the updated
+configuration to start collecting them in Cloudflare Observability. Filter custom
+logs by `event`: `request_completed`, `request_failed`, `scheduled_started`,
+`scheduled_completed`, `scheduled_failed`, `monitor_completed`, `monitor_failed`,
+or `cron_completed`. Correlate monitor entries using `run_id` and `monitor_id`.
+`duration_ms` is elapsed time, including network waits; use Cloudflare invocation
+CPU metrics to investigate CPU limits. Request logs omit query strings, headers,
+credentials and response bodies.
+
+The public overview is `/`, sign-in is `/login`, and the protected dashboard is
+`/dashboard`. `/status` redirects to `/`; group pages retain `/status/:slug`.
+Health check responses needed by assertions or extraction are limited to 1 MiB.
+Status-only checks cancel the body without downloading or parsing it.
+
+The database monitor requires `https://api.micelio.ai/api/db-health` to return
+HTTP 200 with `{"database":"up"}`. This endpoint belongs to the Micelio backend;
+adding the monitor migration does not create the probe.

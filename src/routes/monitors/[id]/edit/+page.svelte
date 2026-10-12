@@ -45,7 +45,7 @@
 				throw new Error(errData.error || 'Failed to update monitor');
 			}
 
-			await goto(resolve('/'));
+			await goto(resolve('/dashboard'));
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to update monitor';
 		} finally {
@@ -54,7 +54,7 @@
 	}
 
 	function handleCancel() {
-		goto(resolve('/'));
+		goto(resolve('/dashboard'));
 	}
 </script>
 
@@ -64,7 +64,7 @@
 
 <AppShell user={data.user}>
 	<Container size="lg">
-		<PageHeader title="Edit Monitor" backHref="/" />
+		<PageHeader title="Edit Monitor" backHref="/dashboard" />
 
 		{#if error}
 			<div class="mb-6">
