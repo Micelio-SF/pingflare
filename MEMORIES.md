@@ -217,3 +217,5 @@ User Preferences
 - Database monitor branch builds and all six migrations apply locally; api.micelio.ai/api/db-health returned HTTP 404 during verification. Cloudflare failed build details require dashboard login.
 
 - Canonical local checkout: /home/victor/Documentos/Coding/micelio-status, sibling of /home/victor/Documentos/Coding/micelio. Backend probe added in micelio/backend/app/api/endpoints/public/health.py; SELECT 1, read-only connection, 3s connect / 2s statement timeouts, existing Redis rate limiter (30s), 200/503 database up/down. Requires backend deployment.
+
+- Production pingflare-db ID confirmed by user: aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd. Both Wrangler configs must agree; previous ID caused Cloudflare error 10181.

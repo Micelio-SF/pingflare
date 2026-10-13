@@ -404,3 +404,6 @@ Relocate checkout beside Micelio and implement its backend database probe.
 - Move checkout to /home/victor/Documentos/Coding/micelio-status; backend changes live in sibling micelio on codex/db-health-probe.
 - Add /api/db-health with bounded read-only query and existing rate limiter; four Docker tests and Ruff pass.
 - TODO: Deploy backend probe and inspect Cloudflare failed build after dashboard login.
+
+Correct the production D1 binding to resolve Cloudflare deploy error 10181.
+- Update database_id in wrangler.toml and wrangler.build.toml to the existing pingflare-db supplied by the user.
