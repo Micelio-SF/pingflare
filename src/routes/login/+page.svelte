@@ -35,7 +35,7 @@
 				return;
 			}
 
-			await goto(resolve('/'));
+			await goto(resolve('/dashboard'));
 		} catch {
 			error = 'An error occurred. Please try again.';
 		} finally {

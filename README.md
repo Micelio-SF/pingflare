@@ -59,14 +59,14 @@ Get alerted when things break:
 
 ### Micelio defaults
 
-Fresh deployments apply `migrations/0002_micelio_status.sql`, which creates two public groups and five active one-minute monitors:
+Fresh deployments apply `migrations/0002_micelio_status.sql` and the seed migrations that follow it, creating two public groups and seven active one-minute monitors:
 
-- **Micelio:** `https://api.micelio.ai/` and `https://micelio.ai/`
-- **External dependencies:** the SII landing page, a `HEAD` request to OpenRouter's public models endpoint, and Gemini's unauthenticated models endpoint
+- **Micelio:** `https://api.micelio.ai/`, `https://api.micelio.ai/api/db-health`, and `https://micelio.ai/`
+- **External dependencies:** the SII landing page, a `HEAD` request to OpenRouter's public models endpoint, Gemini's unauthenticated models endpoint, and OpenRouter's published provider status for Gemini
 
 The OpenRouter and Gemini checks do not invoke a model, consume tokens, or require API keys. Gemini intentionally expects the API gateway's `403 PERMISSION_DENIED` response for an anonymous request. This verifies DNS, TLS, routing, and the Gemini API gateway without billable inference.
 
-Micelio's PostgreSQL database is not monitored directly. The public API root does not query the database, and exposing database credentials to Pingflare would be unsafe. A real database monitor requires a minimal public backend probe that executes a bounded `SELECT 1` and returns no infrastructure details. That endpoint must be added in the Micelio application repository before a database monitor can be enabled here.
+Micelio's PostgreSQL database is monitored through `GET /api/db-health` on the public API, which runs a bounded `SELECT 1` and returns `{"database":"up"}` with no infrastructure details. No database credentials are shared with Pingflare. The endpoint is rate limited to one request per thirty seconds per client, so the monitor's one-minute interval stays well inside the limit.
 
 ### One-Click Deploy
 
@@ -113,3 +113,23 @@ Contributions welcome! Feel free to open issues and pull requests.
 ## License
 
 MIT
+
+### Worker diagnostics
+
+Workers Logs and invocation logs are enabled in `wrangler.toml`. Deploy the updated
+configuration to start collecting them in Cloudflare Observability. Filter custom
+logs by `event`: `request_completed`, `request_failed`, `scheduled_started`,
+`scheduled_completed`, `scheduled_failed`, `monitor_completed`, `monitor_failed`,
+or `cron_completed`. Correlate monitor entries using `run_id` and `monitor_id`.
+`duration_ms` is elapsed time, including network waits; use Cloudflare invocation
+CPU metrics to investigate CPU limits. Request logs omit query strings, headers,
+credentials and response bodies.
+
+The public overview is `/`, sign-in is `/login`, and the protected dashboard is
+`/dashboard`. `/status` redirects to `/`; group pages retain `/status/:slug`.
+Health check responses needed by assertions or extraction are limited to 1 MiB.
+Status-only checks cancel the body without downloading or parsing it.
+
+The database monitor requires `https://api.micelio.ai/api/db-health` to return
+HTTP 200 with `{"database":"up"}`. This endpoint belongs to the Micelio backend;
+adding the monitor migration does not create the probe.

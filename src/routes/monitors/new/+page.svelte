@@ -45,7 +45,7 @@
 				throw new Error(errData.error || 'Failed to create monitor');
 			}
 
-			await goto(resolve('/'));
+			await goto(resolve('/dashboard'));
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to create monitor';
 		} finally {
@@ -54,7 +54,7 @@
 	}
 
 	function handleCancel() {
-		goto(resolve('/'));
+		goto(resolve('/dashboard'));
 	}
 </script>
 
@@ -64,7 +64,7 @@
 
 <AppShell user={data.user}>
 	<Container size="lg">
-		<PageHeader title="Add Monitor" backHref="/" />
+		<PageHeader title="Add Monitor" backHref="/dashboard" />
 
 		{#if error}
 			<div class="mb-6">

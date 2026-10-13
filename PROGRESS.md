@@ -385,3 +385,25 @@ Added a Gemini-through-OpenRouter monitor to the status page.
 - migrations/0005_gemini_via_openrouter.sql: Checks OpenRouter's anonymous /models/google/gemini-2.5-flash/endpoints for a healthy Google endpoint, asserting endpoint status 0 as down and uptime_last_30m below ninety as degraded.
 - migrations/micelio-status.test.ts: Extended the seed test to six monitors covering the new endpoint, method, and assertions.
 - Verified locally against wrangler dev and local D1: /api/cron reported all six monitors up and rejected wrong or missing cron secrets with 403.
+
+Added a Micelio database monitor to the status page.
+
+- migrations/0006_micelio_database.sql: Probes https://api.micelio.ai/api/db-health, asserting a 200 and json.database of up as down conditions, with responseTime over five seconds as degraded.
+- migrations/micelio-status.test.ts: Extended the seed test to seven monitors covering the new endpoint, method, group and assertions.
+- TRADEOFF: The endpoint is rate limited to one request per thirty seconds per client, so a 429 would read as down; the sixty second interval leaves headroom, revisit if the check ever flaps.
+
+
+Move public status to / and add Worker diagnostics with bounded monitor work.
+- Relocate dashboard to /dashboard; preserve /login and /status group pages; update navigation and redirects.
+- Enable Workers persisted/invocation logs; add structured request, scheduler and per-monitor events without bodies, query strings or credentials.
+- Respect monitor intervals, run midnight maintenance once per cron window, avoid unused body parsing and cap body reads at 1 MiB under the request timeout.
+- Verify 38 unit tests, type check (0 errors; 11 existing warnings), build, Wrangler dry-run and six local D1 migrations; changed-file lint passes, global lint has existing unkeyed-each errors.
+- TODO: Diagnose Cloudflare failed deployment after dashboard login; deploy backend /api/db-health (currently 404) before expecting database monitor success.
+
+Relocate checkout beside Micelio and implement its backend database probe.
+- Move checkout to /home/victor/Documentos/Coding/micelio-status; backend changes live in sibling micelio on codex/db-health-probe.
+- Add /api/db-health with bounded read-only query and existing rate limiter; four Docker tests and Ruff pass.
+- TODO: Deploy backend probe and inspect Cloudflare failed build after dashboard login.
+
+Correct the production D1 binding to resolve Cloudflare deploy error 10181.
+- Update database_id in wrangler.toml and wrangler.build.toml to the existing pingflare-db supplied by the user.

@@ -52,7 +52,7 @@
 
 <AppShell user={data.user}>
 	<Container>
-		<PageHeader title="Status Overview" backHref="/">
+		<PageHeader title="Status Overview" backHref="/dashboard">
 			{#snippet actions()}
 				<div class="flex gap-2">
 					<Button variant="secondary" href="/admin/groups">Manage Groups</Button>

@@ -25,7 +25,7 @@
 	}
 
 	const navItems: NavItem[] = [
-		{ href: '/', label: 'Dashboard', match: (path) => path === '/' },
+		{ href: '/dashboard', label: 'Dashboard', match: (path) => path === '/dashboard' },
 		{
 			href: '/admin/status',
 			label: 'Status',
@@ -45,7 +45,7 @@
 <header class="hidden border-b border-gray-200 bg-white md:block">
 	<div class="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 		<div class="flex items-center gap-8">
-			<a href="/" class="flex items-center gap-2">
+			<a href="/dashboard" class="flex items-center gap-2">
 				<MicelioLogo class="h-8 w-8" />
 				<span class="text-lg font-semibold text-[#1E3A5F]">Micelio Status</span>
 			</a>

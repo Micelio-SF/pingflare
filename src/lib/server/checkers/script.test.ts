@@ -389,3 +389,56 @@ describe('executeScript', () => {
 		}
 	});
 });
+
+describe('response resource limits', () => {
+	it('does not consume bodies for status-only checks', async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () =>
+			new Response(
+				new ReadableStream({
+					pull(controller) {
+						controller.error(new Error('Body must not be read'));
+					}
+				}),
+				{ status: 200 }
+			)) as typeof fetch;
+		try {
+			const result = await executeScript(
+				JSON.stringify({
+					steps: [
+						{
+							name: 'status',
+							request: { method: 'GET', url: 'https://example.com' },
+							assert: [{ check: 'status', equals: 200 }]
+						}
+					]
+				})
+			);
+			expect(result.status).toBe('up');
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it('rejects oversized bodies before JSON parsing', async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => new Response('x'.repeat(1024 * 1024 + 1))) as typeof fetch;
+		try {
+			const result = await executeScript(
+				JSON.stringify({
+					steps: [
+						{
+							name: 'json',
+							request: { method: 'GET', url: 'https://example.com' },
+							assert: [{ check: 'json.status', equals: 'up' }]
+						}
+					]
+				})
+			);
+			expect(result.status).toBe('down');
+			expect(result.errorMessage).toContain('1 MiB');
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});

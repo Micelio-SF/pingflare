@@ -3,6 +3,7 @@ import { redirect } from '@sveltejs/kit';
 import { getSession, getUserById, isAppSetup, userToPublic } from '$lib/server/db/auth';
 
 const PUBLIC_PATHS = [
+	'/',
 	'/login',
 	'/setup',
 	'/status',
@@ -28,6 +29,16 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	if (!platform?.env?.DB) {
 		// No database available, allow request to proceed
+		return resolve(event);
+	}
+
+	if (
+		url.pathname === '/' ||
+		url.pathname === '/status' ||
+		url.pathname.startsWith('/status/') ||
+		url.pathname.startsWith('/api/public/') ||
+		url.pathname === '/api/cron'
+	) {
 		return resolve(event);
 	}
 
@@ -64,7 +75,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	// If authenticated and on login page, redirect to dashboard
 	if (event.locals.user && url.pathname === '/login') {
-		throw redirect(302, '/');
+		throw redirect(302, '/dashboard');
 	}
 
 	// If not authenticated and not on public path, redirect to login
