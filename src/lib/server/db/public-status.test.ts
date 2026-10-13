@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readFileSync } from 'node:fs';
 import type { D1Database } from '@cloudflare/workers-types';
-import { getMonitorHistory, historyCutoff } from './history';
+import { getMonitorHistory, historyCutoff, DAILY_COUNTS_SQL } from './history';
 import { getPublicGroupSummaries, getGroupWithStatusBySlug } from './groups';
 import { getPublicIncidents, groupIncidentDates } from './public-incidents';
 import { readD1 } from './diagnostics';
@@ -81,6 +81,60 @@ describe('public status data', () => {
 		expect(history.dailyStatus.find((row) => row.date === day(-20))?.status).toBe('down');
 		expect(history.dailyStatus.at(-1)?.status).toBe('down');
 		expect(history.dailyStatus[0].status).toBe('none');
+	});
+
+	it('preserves a missing aggregate day between completed days and counts UTC boundaries once', async () => {
+		const { sqlite, db } = fixture();
+		const aggregate = sqlite.query(`INSERT INTO daily_status
+   (monitor_id,date,total_checks,up_checks,down_checks,degraded_checks)
+   VALUES ('one',?,10,10,0,0)`);
+		aggregate.run(day(-4));
+		aggregate.run(day(-2));
+		const check = sqlite.query(
+			"INSERT INTO checks(monitor_id,status,checked_at) VALUES ('one',?,?)"
+		);
+		check.run('down', day(-4) + ' 12:00:00'); // Ignored: this day is already aggregated.
+		check.run('down', day(-3) + ' 00:00:00');
+		check.run('up', day(-3) + ' 23:59:59');
+		check.run('down', day(-2) + ' 00:00:00'); // Must not leak into the preceding day.
+		const history = await getMonitorHistory(db, 'one');
+		expect(history.uptime90d).toBe(95.45); // 21 up / 22 total
+		expect(history.dailyStatus.find((row) => row.date === day(-3))).toMatchObject({
+			status: 'down',
+			downtime_minutes: 720
+		});
+		expect(history.dailyStatus.find((row) => row.date === day(-2))?.status).toBe('up');
+	});
+
+	it('uses indexed timestamp ranges for missing days instead of scanning every retained check', () => {
+		const { sqlite } = fixture();
+		const sql = DAILY_COUNTS_SQL.replaceAll('SCOPE', 'm.id = ?');
+		const plan = sqlite
+			.query('EXPLAIN QUERY PLAN ' + sql)
+			.all(day(-89), 'one', day(-89) + ' 00:00:00', 'one') as { detail: string }[];
+		expect(
+			plan.some(
+				(row) =>
+					row.detail.includes('idx_checks_monitor_time') &&
+					row.detail.includes('monitor_id=? AND checked_at>? AND checked_at<?')
+			)
+		).toBe(true);
+	});
+
+	it('reads raw history for monitors without aggregates while excluding days outside the window', async () => {
+		const { sqlite, db } = fixture();
+		const check = sqlite.query(
+			"INSERT INTO checks(monitor_id,status,checked_at) VALUES ('one',?,?)"
+		);
+		check.run('down', day(-90) + ' 23:59:59');
+		check.run('down', day(-89) + ' 00:00:00');
+		check.run('up', day(-20) + ' 12:00:00');
+		check.run('up', day(0) + ' 00:00:00');
+		const history = await getMonitorHistory(db, 'one');
+		expect(history.uptime90d).toBe(66.67);
+		expect(history.dailyStatus[0].status).toBe('down');
+		expect(history.dailyStatus.at(-1)?.status).toBe('up');
+		expect((await getMonitorHistory(db, 'two')).uptime90d).toBe(100);
 	});
 
 	it('loads all public summaries in three queries and omits histories and private monitors', async () => {

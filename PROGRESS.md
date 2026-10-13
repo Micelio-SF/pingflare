@@ -414,3 +414,9 @@ Reduce public status D1 work and add query diagnostics.
 - Reuse daily aggregate/raw counts for uptime and bars without overlapping days; combine latest statuses and reuse date formatter.
 - Add correlated D1 operation logs with SQL duration and scanned/written/returned row counts; omit SQL and bindings.
 - Verify 44 unit tests, changed-file lint, production build, type check (0 errors; 11 existing warnings) and Wrangler dry-run. Production CPU improvement remains to be measured after deployment.
+
+Skip aggregated days before scanning raw checks in public uptime queries.
+- history.ts: Enumerate the 90 UTC dates, exclude existing monitor/day aggregates, then read missing days through idx_checks_monitor_time with lower/upper timestamp bounds; preserve aggregation gaps and monitors with no aggregates.
+- public-status.test.ts: Cover missing days between aggregates, exact UTC boundaries, raw-only history and indexed range query plans.
+- Compare a seven-day SQLite fixture: identical output, ~333k to ~48k VM instructions; these are local execution measurements, not production D1 rows_read or Worker CPU.
+- Verify 47 unit tests, changed-file lint, build, type check (0 errors; 11 existing warnings) and Wrangler dry-run. No migrations/bindings required; compare d1_query_completed after deployment.

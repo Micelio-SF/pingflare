@@ -14,22 +14,32 @@ export interface DailyCounts {
 
 // Completed daily aggregates are authoritative; raw checks supply days not aggregated yet.
 // This preserves history after raw retention cleanup without counting overlapping days twice.
-// Check aggregate existence per grouped day, rather than performing an index lookup per raw check.
+// Enumerate missing calendar days before visiting checks so aggregated raw days are never scanned.
+// CROSS JOIN fixes the loop order: monitor -> missing day -> indexed check range.
 export const DAILY_COUNTS_SQL = `
  SELECT d.monitor_id, d.date, d.total_checks, d.up_checks, d.down_checks,
         d.degraded_checks, d.downtime_minutes
  FROM daily_status d JOIN monitors m ON m.id = d.monitor_id
  WHERE d.date >= ? AND SCOPE
  UNION ALL
- SELECT c.monitor_id, DATE(c.checked_at) AS date, COUNT(*) AS total_checks,
+ SELECT m.id AS monitor_id, days.date, COUNT(*) AS total_checks,
         SUM(c.status = 'up') AS up_checks, SUM(c.status = 'down') AS down_checks,
         SUM(c.status = 'degraded') AS degraded_checks,
         ROUND(1440.0 * SUM(c.status = 'down') / COUNT(*)) AS downtime_minutes
- FROM checks c JOIN monitors m ON m.id = c.monitor_id
- WHERE c.checked_at >= ? AND SCOPE
- GROUP BY c.monitor_id, DATE(c.checked_at)
- HAVING NOT EXISTS (SELECT 1 FROM daily_status d
-                    WHERE d.monitor_id = c.monitor_id AND d.date = DATE(c.checked_at))`;
+ FROM monitors m CROSS JOIN (
+   WITH RECURSIVE calendar(date) AS (
+     SELECT DATE(?)
+     UNION ALL
+     SELECT DATE(date, '+1 day') FROM calendar WHERE date < DATE('now')
+   ) SELECT date FROM calendar
+ ) days CROSS JOIN checks c
+ WHERE SCOPE
+   AND NOT EXISTS (SELECT 1 FROM daily_status d
+                   WHERE d.monitor_id = m.id AND d.date = days.date)
+   AND c.monitor_id = m.id
+   AND c.checked_at >= days.date || ' 00:00:00'
+   AND c.checked_at < DATETIME(days.date, '+1 day')
+ GROUP BY m.id, days.date`;
 
 export function historyCutoff(now = new Date()): string {
 	return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 89))
