@@ -1,3 +1,12 @@
+<script module lang="ts">
+	const dateFormatter = new Intl.DateTimeFormat('en-US', {
+		month: 'short',
+		day: 'numeric',
+		year: 'numeric',
+		timeZone: 'UTC'
+	});
+</script>
+
 <script lang="ts">
 	import type { DailyStatus } from '$lib/types/status';
 
@@ -51,7 +60,7 @@
 
 	function formatDate(dateStr: string): string {
 		const date = new Date(dateStr);
-		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+		return dateFormatter.format(date);
 	}
 
 	let hoveredDay = $state<DailyStatus | null>(null);
@@ -79,7 +88,7 @@
 	</div>
 
 	<div class="mb-2 flex gap-[2px]">
-		{#each days as day}
+		{#each days as day (day.date)}
 			<button
 				type="button"
 				class="h-8 flex-1 rounded-sm transition-opacity hover:opacity-80 {getStatusColor(

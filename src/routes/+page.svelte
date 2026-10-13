@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	import type { GroupWithStatus } from '$lib/types/group';
-	import type { OverallStatus, StatusMonitor } from '$lib/types/status';
+	import type { GroupSummary } from '$lib/types/group';
+	import type { OverallStatus } from '$lib/types/status';
 	import { getOverallStatus, getOverallStatusText, getOverallStatusColor } from '$lib/types/status';
 	import PublicLayout from '$lib/components/layout/PublicLayout.svelte';
 	import { PUBLIC_STATUS_DESCRIPTION, PUBLIC_STATUS_TITLE } from '$lib/config/brand';
@@ -9,8 +9,8 @@
 	let { data }: { data: PageData } = $props();
 
 	// Compute overall status across all groups
-	function getGlobalStatus(groups: GroupWithStatus[]): OverallStatus {
-		const allMonitors: StatusMonitor[] = groups.flatMap((g) => g.monitors);
+	function getGlobalStatus(groups: GroupSummary[]): OverallStatus {
+		const allMonitors = groups.flatMap((g) => g.monitors);
 		return getOverallStatus(allMonitors);
 	}
 

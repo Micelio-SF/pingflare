@@ -1,3 +1,4 @@
+import { getMonitorHistory } from './history';
 import type { D1Database } from '@cloudflare/workers-types';
 import type { Monitor, Check, MonitorStatus } from '$lib/types/monitor';
 import type {
@@ -28,112 +29,11 @@ export async function getLastCheck(db: D1Database, monitorId: string): Promise<C
  * Get 90-day daily status for a monitor
  */
 export async function getDailyStatus(db: D1Database, monitorId: string): Promise<DailyStatus[]> {
-	const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-	// Get aggregated daily data
-	const dailyData = await db
-		.prepare(
-			`
-			SELECT date, total_checks, up_checks, down_checks, degraded_checks, downtime_minutes
-			FROM daily_status
-			WHERE monitor_id = ? AND date >= ?
-			ORDER BY date ASC
-		`
-		)
-		.bind(monitorId, cutoff)
-		.all<{
-			date: string;
-			total_checks: number;
-			up_checks: number;
-			down_checks: number;
-			degraded_checks: number;
-			downtime_minutes: number;
-		}>();
-
-	// Also get raw checks for recent days not yet aggregated
-	const rawChecks = await db
-		.prepare(
-			`
-			SELECT
-				DATE(checked_at) as date,
-				COUNT(*) as total_checks,
-				SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_checks,
-				SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_checks,
-				SUM(CASE WHEN status = 'degraded' THEN 1 ELSE 0 END) as degraded_checks
-			FROM checks
-			WHERE monitor_id = ? AND DATE(checked_at) >= ?
-			GROUP BY DATE(checked_at)
-			ORDER BY date ASC
-		`
-		)
-		.bind(monitorId, cutoff)
-		.all<{
-			date: string;
-			total_checks: number;
-			up_checks: number;
-			down_checks: number;
-			degraded_checks: number;
-		}>();
-
-	// Build a map of dates to status
-	const statusMap = new Map<string, DailyStatus>();
-
-	// Initialize all 90 days with 'none' status
-	for (let i = 89; i >= 0; i--) {
-		const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
-		const dateStr = date.toISOString().split('T')[0];
-		statusMap.set(dateStr, { date: dateStr, status: 'none', downtime_minutes: 0 });
-	}
-
-	// Fill in aggregated data
-	for (const row of dailyData.results) {
-		if (row.total_checks === 0) continue;
-		let status: DailyStatus['status'] = 'up';
-		if (row.down_checks > 0) status = 'down';
-		else if (row.degraded_checks > 0) status = 'degraded';
-		statusMap.set(row.date, {
-			date: row.date,
-			status,
-			downtime_minutes: row.downtime_minutes || 0
-		});
-	}
-
-	// Overlay raw checks (more recent data)
-	for (const row of rawChecks.results) {
-		if (row.total_checks === 0) continue;
-		let status: DailyStatus['status'] = 'up';
-		if (row.down_checks > 0) status = 'down';
-		else if (row.degraded_checks > 0) status = 'degraded';
-		// Estimate downtime (rough calculation)
-		const downtimeMinutes = Math.round((row.down_checks / row.total_checks) * 24 * 60);
-		statusMap.set(row.date, { date: row.date, status, downtime_minutes: downtimeMinutes });
-	}
-
-	// Return sorted array
-	return Array.from(statusMap.values()).sort((a, b) => a.date.localeCompare(b.date));
+	return (await getMonitorHistory(db, monitorId)).dailyStatus;
 }
 
-/**
- * Calculate 90-day uptime percentage
- */
 export async function getUptime90d(db: D1Database, monitorId: string): Promise<number> {
-	const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-
-	const result = await db
-		.prepare(
-			`
-			SELECT
-				COUNT(*) as total,
-				SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up
-			FROM checks
-			WHERE monitor_id = ? AND checked_at > ?
-		`
-		)
-		.bind(monitorId, cutoff)
-		.first<{ total: number; up: number }>();
-
-	if (!result?.total || result.total === 0) return 100;
-	return Math.round((result.up / result.total) * 10000) / 100;
+	return (await getMonitorHistory(db, monitorId)).uptime90d;
 }
 
 /**
@@ -144,10 +44,9 @@ export async function getAllMonitorsForStatusPage(db: D1Database): Promise<Statu
 
 	const statusMonitors: StatusMonitor[] = await Promise.all(
 		monitors.results.map(async (monitor) => {
-			const [lastCheck, dailyStatus, uptime90d] = await Promise.all([
+			const [lastCheck, history] = await Promise.all([
 				getLastCheck(db, monitor.id),
-				getDailyStatus(db, monitor.id),
-				getUptime90d(db, monitor.id)
+				getMonitorHistory(db, monitor.id)
 			]);
 
 			return {
@@ -155,8 +54,8 @@ export async function getAllMonitorsForStatusPage(db: D1Database): Promise<Statu
 				name: monitor.name,
 				group_id: monitor.group_id,
 				current_status: lastCheck?.status ?? null,
-				uptime_90d: uptime90d,
-				daily_status: dailyStatus
+				uptime_90d: history.uptime90d,
+				daily_status: history.dailyStatus
 			};
 		})
 	);

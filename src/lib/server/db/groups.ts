@@ -7,8 +7,9 @@ import type {
 } from '$lib/types/group';
 import type { StatusMonitor } from '$lib/types/status';
 import { getOverallStatus } from '$lib/types/status';
-import { getDailyStatus, getUptime90d, getLastCheck } from './status';
-import type { Monitor } from '$lib/types/monitor';
+import { getMonitorHistory, DAILY_COUNTS_SQL, historyCutoff } from './history';
+import { readD1 } from './diagnostics';
+import type { GroupSummary } from '$lib/types/group';
 
 // ============================================
 // Group CRUD Operations
@@ -166,11 +167,18 @@ export async function getPublicGroupsWithStatus(db: D1Database): Promise<GroupWi
 
 export async function getGroupWithStatusBySlug(
 	db: D1Database,
-	slug: string
+	slug: string,
+	requestId?: string
 ): Promise<GroupWithStatus | null> {
-	const group = await getGroupBySlug(db, slug);
+	const [group] = await readD1<MonitorGroup>(
+		db,
+		'public_group',
+		'SELECT * FROM monitor_groups WHERE slug = ? AND is_public = 1',
+		[slug],
+		requestId
+	);
 	if (!group) return null;
-	return getGroupWithStatus(db, group);
+	return getGroupWithStatus(db, group, requestId);
 }
 
 export async function getAllGroupsWithStatus(db: D1Database): Promise<GroupWithStatus[]> {
@@ -178,29 +186,30 @@ export async function getAllGroupsWithStatus(db: D1Database): Promise<GroupWithS
 	return Promise.all(groups.map((group) => getGroupWithStatus(db, group)));
 }
 
-async function getGroupWithStatus(db: D1Database, group: MonitorGroup): Promise<GroupWithStatus> {
-	// Get all monitors for this group
-	const monitors = await db
-		.prepare('SELECT * FROM monitors WHERE group_id = ? ORDER BY name ASC')
-		.bind(group.id)
-		.all<Monitor>();
-
-	// Build StatusMonitor objects
+async function getGroupWithStatus(
+	db: D1Database,
+	group: MonitorGroup,
+	requestId?: string
+): Promise<GroupWithStatus> {
+	const monitors = await readD1<Omit<StatusMonitor, 'daily_status' | 'uptime_90d'>>(
+		db,
+		'group_monitor_status',
+		`SELECT m.id, m.name, m.group_id,
+   (SELECT status FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS current_status
+   FROM monitors m WHERE group_id = ? ORDER BY name`,
+		[group.id],
+		requestId
+	);
 	const statusMonitors: StatusMonitor[] = await Promise.all(
-		monitors.results.map(async (monitor) => {
-			const [lastCheck, dailyStatus, uptime90d] = await Promise.all([
-				getLastCheck(db, monitor.id),
-				getDailyStatus(db, monitor.id),
-				getUptime90d(db, monitor.id)
-			]);
-
+		monitors.map(async (monitor) => {
+			const history = await getMonitorHistory(db, monitor.id, requestId);
 			return {
 				id: monitor.id,
 				name: monitor.name,
 				group_id: monitor.group_id,
-				current_status: lastCheck?.status ?? null,
-				uptime_90d: uptime90d,
-				daily_status: dailyStatus
+				current_status: monitor.current_status,
+				uptime_90d: history.uptime90d,
+				daily_status: history.dailyStatus
 			};
 		})
 	);
@@ -235,4 +244,62 @@ export async function getOrCreateDefaultGroup(db: D1Database): Promise<MonitorGr
 	}
 
 	return defaultGroup;
+}
+
+export async function getPublicGroupSummaries(
+	db: D1Database,
+	requestId: string
+): Promise<GroupSummary[]> {
+	const scope = 'm.group_id IN (SELECT id FROM monitor_groups WHERE is_public = 1)';
+	const cutoff = historyCutoff();
+	const [groups, monitors, totals] = await Promise.all([
+		readD1<MonitorGroup>(
+			db,
+			'public_groups',
+			'SELECT * FROM monitor_groups WHERE is_public = 1 ORDER BY display_order, name',
+			[],
+			requestId
+		),
+		readD1<Omit<StatusMonitor, 'daily_status' | 'uptime_90d'>>(
+			db,
+			'public_monitor_status',
+			`SELECT m.id, m.name, m.group_id,
+    (SELECT status FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS current_status
+    FROM monitors m WHERE ${scope} ORDER BY m.name`,
+			[],
+			requestId
+		),
+		readD1<{ monitor_id: string; total_checks: number; up_checks: number }>(
+			db,
+			'public_uptime_totals',
+			`SELECT monitor_id, SUM(total_checks) AS total_checks, SUM(up_checks) AS up_checks
+    FROM (${DAILY_COUNTS_SQL.replaceAll('SCOPE', scope)}) GROUP BY monitor_id`,
+			[cutoff, cutoff + ' 00:00:00'],
+			requestId
+		)
+	]);
+	const uptimes = new Map(
+		totals.map((row) => [
+			row.monitor_id,
+			row.total_checks ? Math.round((row.up_checks / row.total_checks) * 10000) / 100 : 100
+		])
+	);
+	const byGroup = new Map<string | null, GroupSummary['monitors']>();
+	for (const monitor of monitors) {
+		const list = byGroup.get(monitor.group_id) ?? [];
+		list.push({ ...monitor, uptime_90d: uptimes.get(monitor.id) ?? 100 });
+		byGroup.set(monitor.group_id, list);
+	}
+	return groups.map((group) => {
+		const monitors = byGroup.get(group.id) ?? [];
+		return {
+			...group,
+			monitors,
+			overall_status: getOverallStatus(monitors),
+			uptime_90d: monitors.length
+				? Math.round((monitors.reduce((sum, m) => sum + m.uptime_90d, 0) / monitors.length) * 100) /
+					100
+				: 100
+		};
+	});
 }
