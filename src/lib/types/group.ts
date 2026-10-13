@@ -34,3 +34,9 @@ export interface UpdateGroupInput {
 	is_public?: boolean;
 	display_order?: number;
 }
+
+export interface GroupSummary extends MonitorGroup {
+	monitors: Omit<StatusMonitor, 'daily_status'>[];
+	overall_status: OverallStatus;
+	uptime_90d: number;
+}

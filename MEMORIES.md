@@ -219,3 +219,7 @@ User Preferences
 - Canonical local checkout: /home/victor/Documentos/Coding/micelio-status, sibling of /home/victor/Documentos/Coding/micelio. Backend probe added in micelio/backend/app/api/endpoints/public/health.py; SELECT 1, read-only connection, 3s connect / 2s statement timeouts, existing Redis rate limiter (30s), 200/503 database up/down. Requires backend deployment.
 
 - Production pingflare-db ID confirmed by user: aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd. Both Wrangler configs must agree; previous ID caused Cloudflare error 10181.
+
+- Public overview uses getPublicGroupSummaries: three bulk queries plus two incident queries, without daily_status payloads. Group detail uses 4+M queries including incidents, independent of incident/update counts.
+- history.ts combines authoritative daily_status with raw checks for unaggregated days over 90 UTC calendar dates; HAVING checks overlap once per grouped day. Overview/detail share counts; deleted raw history remains represented through aggregates. No migration required.
+- Public status D1 diagnostics: d1_query_completed/failed with named operation, request_id, elapsed/SQL duration and row counts; no SQL, bindings or payloads. status_data_completed correlates the page load; durations are not Worker CPU. UptimeBars reuses one UTC Intl formatter.

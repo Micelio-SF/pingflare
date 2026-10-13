@@ -64,7 +64,7 @@ export interface AddIncidentUpdateInput {
 // Overall status for the banner
 export type OverallStatus = 'operational' | 'degraded' | 'major_outage' | 'partial_outage';
 
-export function getOverallStatus(monitors: StatusMonitor[]): OverallStatus {
+export function getOverallStatus(monitors: Pick<StatusMonitor, 'current_status'>[]): OverallStatus {
 	if (monitors.length === 0) return 'operational';
 
 	const downCount = monitors.filter((m) => m.current_status === 'down').length;

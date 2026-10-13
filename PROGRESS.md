@@ -407,3 +407,10 @@ Relocate checkout beside Micelio and implement its backend database probe.
 
 Correct the production D1 binding to resolve Cloudflare deploy error 10181.
 - Update database_id in wrangler.toml and wrangler.build.toml to the existing pingflare-db supplied by the user.
+
+Reduce public status D1 work and add query diagnostics.
+- Load overview summaries in three queries and public incidents/updates in two; omit unused 90-day histories and private-group incidents.
+- Load group incidents across seven UTC dates in two queries; preserve old unresolved incidents, date buckets and update ordering.
+- Reuse daily aggregate/raw counts for uptime and bars without overlapping days; combine latest statuses and reuse date formatter.
+- Add correlated D1 operation logs with SQL duration and scanned/written/returned row counts; omit SQL and bindings.
+- Verify 44 unit tests, changed-file lint, production build, type check (0 errors; 11 existing warnings) and Wrangler dry-run. Production CPU improvement remains to be measured after deployment.
