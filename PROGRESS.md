@@ -427,3 +427,14 @@ Reduce scanner and public status request costs.
 - Keep outward responses private/no-store so the adapter's pre-hook cache cannot bypass eligibility checks; preserve live serving on cache failures.
 - Include the pending indexed D1 history optimization from PR #4; no migrations or bindings required.
 - Verify 79 unit tests, changed-file ESLint/Prettier, production build, Wrangler dry-run and Svelte check (zero errors; eleven existing accessibility warnings).
+
+Investigate cron CPU pressure using captured public responses and an isolated workerd/D1 replay.
+- Profile empty, seven-monitor, HTML-only, no-HTML and status-only scenarios, plus direct route execution; keep benchmark scripts and profiles in /tmp/micelio-status-cpu.
+- Propose independent check invocations, bulk latest-check reads, streamed positive body assertions and a direct scheduler service; leave application code and production unchanged.
+- ISSUE: Wrangler refresh token rejected with invalid_grant; production CPU attribution and deployed monitor configuration require restored Cloudflare access.
+
+Reduce cron CPU through measured independent check invocations and bounded body processing.
+- Add shared cron/scheduler services, three independent minute Workers, separate daily maintenance, full manual endpoint compatibility, coordinated deploy command and rollout/rollback notes.
+- Combine monitors/latest checks in one query with deterministic ties; stop compatible positive body searches early and exclude scheduler code from static assets.
+- Measure sequential scheduled replays: original ~6.5 ms versus final ~2.2–2.7 ms per partition (CDP active samples, not Cloudflare CPU accounting); 98 tests pass including cancellation regression, partition ownership, failure isolation, recovery notifications and daily retention. Build, changed-file ESLint, type check (0 errors, 11 existing warnings) and four Wrangler dry-runs pass.
+- TODO: Restore Wrangler authentication, deploy all three check Workers before main, and verify production CPU including state-change notification traffic. No deployment or commit performed.

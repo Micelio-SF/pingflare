@@ -52,7 +52,7 @@ Get alerted when things break:
 - **Session-based auth** — Secure login with email/password
 - **Role-based access** — Admin, Editor, and Viewer roles
 - **Protected APIs** — All admin endpoints require authentication
-- **Secure cron** — Scheduled health checks use a secret token (not exposed in repo)
+- **Secure manual checks** — The HTTP cron endpoint requires a secret; scheduled checks have no public endpoint
 - **Your infrastructure** — Data never leaves your Cloudflare account
 
 ## Quick Start
@@ -73,8 +73,9 @@ Micelio's PostgreSQL database is monitored through `GET /api/db-health` on the p
 1. Click the **Deploy to Cloudflare** button above
 2. Authorize Cloudflare to access your GitHub
 3. Click Deploy — Cloudflare handles the rest
-4. Set the cron secret (required for scheduled health checks):
-5. Visit your Worker URL and create an admin account
+4. Set the cron secret (required for manual HTTP health checks):
+5. Deploy the three check Workers using the commands below; the main Worker only schedules daily maintenance.
+6. Visit your Worker URL and create an admin account
 
 ### Manual Setup
 
@@ -85,9 +86,14 @@ bun install
 wrangler login
 wrangler d1 create pingflare-db
 # Update wrangler.toml with your database ID
-bun run build && bun run deploy
+bun run build
+wrangler d1 migrations apply DB --remote
+wrangler deploy --config wrangler.checks.toml --env shard-0
+wrangler deploy --config wrangler.checks.toml --env shard-1
+wrangler deploy --config wrangler.checks.toml --env shard-2
+wrangler deploy
 
-# Set the cron secret (required for scheduled health checks)
+# Set the cron secret (required for manual HTTP health checks)
 openssl rand -hex 32 | wrangler secret put CRON_SECRET
 ```
 
@@ -133,3 +139,30 @@ Status-only checks cancel the body without downloading or parsing it.
 The database monitor requires `https://api.micelio.ai/api/db-health` to return
 HTTP 200 with `{"database":"up"}`. This endpoint belongs to the Micelio backend;
 adding the monitor migration does not create the probe.
+
+### Independent check invocations
+
+`wrangler.checks.toml` defines three cron-only Workers (`pingflare-checks-0/1/2`),
+all bound to the same D1 database. Every minute each Worker selects its partition
+from active monitors sorted by ID (position modulo three). Seven monitors therefore
+run as groups of three, two and two, each in a separate scheduled invocation.
+Deploy all three environments with the same shard count and code version. Update
+the database IDs in both existing Wrangler configs and all three check environments
+when using another database. These Workers need no `CRON_SECRET` or HTTP route.
+
+The main `pingflare` Worker runs aggregation and retention cleanup at 00:00 UTC,
+separately from health checks. Deploy all three check Workers before updating the
+main Worker; otherwise removing its minute cron would stop some or all checks.
+During an upgrade from the original single cron there can be brief overlap until
+the old schedule is removed. Cloudflare cron changes can take several minutes to
+propagate, so verify each check Worker's invocation logs and each monitor's latest
+check after deployment. `bun run deploy` applies migrations and deploys all three check Workers before the main Worker.
+Rollback requires restoring the previous main Worker AND removing the three new
+minute schedules, to avoid duplicated checks.
+
+Latest results are loaded with the monitors in one indexed query per partition.
+Positive `body contains` assertions stop reading once all required strings are
+found; JSON, extraction and other body assertions retain bounded full-body reads.
+A positive match measures response time up to that match rather than the remaining
+body download. Missing text still reads to EOF or the existing 1 MiB limit.
+`GET /api/cron` remains a secret-protected manual run of the full monitor set.

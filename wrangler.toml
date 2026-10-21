@@ -14,16 +14,16 @@ database_name = "pingflare-db"
 database_id = "aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd"
 migrations_dir = "migrations"
 
-# Cron triggers - runs health checks every minute
+# Daily maintenance only. Minute checks run in wrangler.checks.toml.
 [triggers]
-crons = ["*/1 * * * *"]
+crons = ["0 0 * * *"]
 
 # Environment variables
 [vars]
 ENVIRONMENT = "production"
 
-# Required secrets (set via `wrangler secret put`):
-# - CRON_SECRET: Random string to authenticate scheduled health checks
+# Manual HTTP check secret (set via `wrangler secret put`):
+# - CRON_SECRET: Random string to authenticate GET /api/cron
 #   Generate with: openssl rand -hex 32
 
 [observability.logs]

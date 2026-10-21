@@ -442,3 +442,136 @@ describe('response resource limits', () => {
 		}
 	});
 });
+
+describe('streamed body assertions', () => {
+	const encoder = new TextEncoder();
+
+	function streamedResponse(chunks: Uint8Array[]) {
+		let reads = 0;
+		let ended = false;
+		let cancelled = false;
+		const response = new Response(
+			new ReadableStream<Uint8Array>(
+				{
+					pull(controller) {
+						if (reads < chunks.length) controller.enqueue(chunks[reads++]);
+						else {
+							ended = true;
+							controller.close();
+						}
+					},
+					cancel() {
+						cancelled = true;
+					}
+				},
+				{ highWaterMark: 0 }
+			)
+		);
+		return { response, state: () => ({ reads, ended, cancelled }) };
+	}
+
+	async function checkResponse(response: Response, assertions: unknown[], extract?: object) {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => response) as typeof fetch;
+		try {
+			return await executeScript(
+				JSON.stringify({
+					steps: [
+						{
+							name: 'stream',
+							request: { method: 'GET', url: 'https://example.com' },
+							assert: assertions,
+							extract
+						}
+					]
+				})
+			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	}
+
+	it('cancels the remaining body only after all tokens match across UTF-8 chunk boundaries', async () => {
+		const text = encoder.encode('Micelio acción');
+		const accentedByte = text.indexOf(0xc3);
+		const stream = streamedResponse([
+			text.slice(0, accentedByte + 1),
+			text.slice(accentedByte + 1),
+			encoder.encode(' trailing body that is unnecessary')
+		]);
+		const result = await checkResponse(stream.response, [
+			{ check: 'status', equals: 200 },
+			{ check: 'body', contains: 'Micelio' },
+			{ check: 'body', contains: 'acción', severity: 'down' }
+		]);
+		expect(result.status).toBe('up');
+		expect(stream.state()).toEqual({ reads: 2, ended: false, cancelled: true });
+	});
+
+	it('reads through EOF when a required token is absent and preserves failure severity', async () => {
+		const stream = streamedResponse(['Micelio', ' finished'].map((text) => encoder.encode(text)));
+		const result = await checkResponse(stream.response, [
+			{ check: 'body', contains: 'Micelio' },
+			{ check: 'body', contains: 'missing', severity: 'down' }
+		]);
+		expect(result.status).toBe('down');
+		expect(result.errorMessage).toContain('missing');
+		expect(stream.state().ended).toBe(true);
+	});
+
+	it.each([
+		{
+			name: 'negative body assertion',
+			chunks: ['ready', ' failure'],
+			assertions: [
+				{ check: 'body', contains: 'ready' },
+				{ check: 'body', notContains: 'failure' }
+			],
+			status: 'degraded'
+		},
+		{
+			name: 'full-body equality',
+			chunks: ['ready', ' completed'],
+			assertions: [
+				{ check: 'body', contains: 'ready' },
+				{ check: 'body', equals: 'ready completed' }
+			],
+			status: 'up'
+		},
+		{
+			name: 'multiple operators on a body assertion',
+			chunks: ['ready', ' completed'],
+			assertions: [{ check: 'body', contains: 'ready', equals: 'ready completed' }],
+			status: 'up'
+		},
+		{
+			name: 'JSON assertion',
+			chunks: ['{"message":"ready",', '"healthy":true}'],
+			assertions: [
+				{ check: 'body', contains: 'ready' },
+				{ check: 'json.healthy', equals: true }
+			],
+			status: 'up'
+		},
+		{
+			name: 'JSON extraction',
+			chunks: ['{"message":"ready",', '"token":"secret"}'],
+			assertions: [{ check: 'body', contains: 'ready' }],
+			extract: { token: 'json.token' },
+			status: 'up'
+		}
+	])('retains full body consumption for $name', async ({ chunks, assertions, extract, status }) => {
+		const stream = streamedResponse(chunks.map((text) => encoder.encode(text)));
+		const result = await checkResponse(stream.response, assertions, extract);
+		expect(result.status).toBe(status);
+		expect(stream.state().ended).toBe(true);
+	});
+
+	it('enforces the byte limit while searching for a missing token', async () => {
+		const stream = streamedResponse([new Uint8Array(1024 * 1024), encoder.encode('x')]);
+		const result = await checkResponse(stream.response, [{ check: 'body', contains: 'missing' }]);
+		expect(result.status).toBe('down');
+		expect(result.errorMessage).toContain('1 MiB');
+		expect(stream.state().cancelled).toBe(true);
+	});
+});

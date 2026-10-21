@@ -55,6 +55,7 @@ async function main() {
 	const wrapperCode = `
 // Auto-generated wrapper - adds scheduled handler to SvelteKit's fetch handler
 import svelteKitHandler from './cloudflare/_worker.js';
+import { maintenanceScheduled as scheduled } from '../src/lib/server/scheduler.ts';
 
 export default {
 	async fetch(request, env, ctx) {
@@ -69,35 +70,7 @@ export default {
 		}
 	},
 
-	async scheduled(controller, env, ctx) {
-		console.info({ event: 'scheduled_started', scheduled_time: controller.scheduledTime, cron: controller.cron });
-
-		if (!env.CRON_SECRET) {
-			console.error('[Scheduler] CRON_SECRET not configured');
-			return;
-		}
-
-		const request = new Request('https://pingflare.internal/api/cron', {
-			method: 'GET',
-			headers: {
-				'User-Agent': 'Pingflare-Scheduler/1.0',
-				'X-Cron-Secret': env.CRON_SECRET
-			}
-		});
-
-		try {
-			const response = await svelteKitHandler.fetch(request, env, ctx);
-			if (!response.ok) {
-				console.error({ event: 'scheduled_failed', status: response.status });
-				throw new Error('Cron endpoint failed');
-			}
-			const result = await response.json();
-			console.info({ event: 'scheduled_completed', checked: result.checked, successful: result.successful, failed: result.failed });
-		} catch (error) {
-			console.error({ event: 'scheduled_failed', error_type: error instanceof Error ? error.name : 'UnknownError' });
-			throw error;
-		}
-	}
+	scheduled
 };
 `;
 	writeFileSync(WRAPPER_FILE, wrapperCode);
@@ -108,6 +81,7 @@ export default {
 		await build({
 			entryPoints: [WRAPPER_FILE],
 			bundle: true,
+			alias: { $lib: join(projectRoot, 'src/lib') },
 			outfile: join(DIST_DIR, '_worker.js'),
 			format: 'esm',
 			platform: 'browser',
@@ -129,6 +103,20 @@ export default {
 		console.error('[build-worker] Bundle failed:', error);
 		process.exit(1);
 	}
+
+	await build({
+		entryPoints: [join(projectRoot, 'src/scheduler.ts')],
+		bundle: true,
+		outfile: join(DIST_DIR, '_scheduler.js'),
+		format: 'esm',
+		platform: 'browser',
+		target: 'es2022',
+		minify: true,
+		alias: { $lib: join(projectRoot, 'src/lib') },
+		external: ['cloudflare:*']
+	});
+
+	writeFileSync(join(DIST_DIR, '.assetsignore'), '_worker.js\n_scheduler.js\n');
 
 	// Cleanup wrapper file
 	rmSync(WRAPPER_FILE, { force: true });

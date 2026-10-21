@@ -26,6 +26,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	// Let SvelteKit return its 404 without reading setup/session data for scanner paths.
 	if (!event.route.id) return resolve(event);
 
+	if (url.pathname === '/api/cron') return resolve(event);
+
 	// Skip auth for public paths
 	const isPublicPath = PUBLIC_PATHS.some(
 		(path) => url.pathname === path || url.pathname.startsWith(path + '/')
@@ -40,8 +42,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 		url.pathname === '/' ||
 		url.pathname === '/status' ||
 		url.pathname.startsWith('/status/') ||
-		url.pathname.startsWith('/api/public/') ||
-		url.pathname === '/api/cron'
+		url.pathname.startsWith('/api/public/')
 	) {
 		// The adapter reads caches.default before hooks, so use a separate cache.
 		const cache = await platform.caches?.open('micelio-public-status-v1').catch(() => undefined);
