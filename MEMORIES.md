@@ -221,5 +221,8 @@ User Preferences
 - Production pingflare-db ID confirmed by user: aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd. Both Wrangler configs must agree; previous ID caused Cloudflare error 10181.
 
 - Public overview uses getPublicGroupSummaries: three bulk queries plus two incident queries, without daily_status payloads. Group detail uses 4+M queries including incidents, independent of incident/update counts.
-- history.ts combines authoritative daily_status with raw checks for unaggregated days over 90 UTC calendar dates; HAVING checks overlap once per grouped day. Overview/detail share counts; deleted raw history remains represented through aggregates. No migration required.
+- history.ts combines authoritative daily_status with raw checks for unaggregated days over 90 UTC calendar dates; Missing dates are enumerated before indexed raw-check range reads; existing aggregate days are skipped before scanning. Overview/detail share counts; deleted raw history remains represented through aggregates. No migration required.
 - Public status D1 diagnostics: d1_query_completed/failed with named operation, request_id, elapsed/SQL duration and row counts; no SQL, bindings or payloads. status_data_completed correlates the page load; durations are not Worker CPU. UptimeBars reuses one UTC Intl formatter.
+
+- Public response caching uses named Cache API storage micelio-public-status-v1, never caches.default: the Cloudflare adapter reads default before hooks and would bypass Cookie/Accept checks. Internal copies expire after 60s; outward responses are private,no-store to prevent adapter/CDN recaching. Only anonymous parameterless GET public HTML and /api/public/status qualify; errors/session responses stay live.
+- Unmatched SvelteKit event.route.id resolves directly before setup/session reads, preserving framework 404s for scanner paths.
