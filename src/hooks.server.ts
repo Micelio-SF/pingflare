@@ -1,5 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
 import { redirect } from '@sveltejs/kit';
+import { cachePublicResponse } from '$lib/server/public-cache';
 import { getSession, getUserById, isAppSetup, userToPublic } from '$lib/server/db/auth';
 
 const PUBLIC_PATHS = [
@@ -22,6 +23,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.user = null;
 	event.locals.sessionId = null;
 
+	// Let SvelteKit return its 404 without reading setup/session data for scanner paths.
+	if (!event.route.id) return resolve(event);
+
 	// Skip auth for public paths
 	const isPublicPath = PUBLIC_PATHS.some(
 		(path) => url.pathname === path || url.pathname.startsWith(path + '/')
@@ -39,6 +43,16 @@ export const handle: Handle = async ({ event, resolve }) => {
 		url.pathname.startsWith('/api/public/') ||
 		url.pathname === '/api/cron'
 	) {
+		// The adapter reads caches.default before hooks, so use a separate cache.
+		const cache = await platform.caches?.open('micelio-public-status-v1').catch(() => undefined);
+		if (cache && platform.context) {
+			return cachePublicResponse(
+				event.request,
+				cache,
+				(promise) => platform.context.waitUntil(promise),
+				async () => resolve(event)
+			);
+		}
 		return resolve(event);
 	}
 

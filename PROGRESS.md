@@ -420,3 +420,10 @@ Skip aggregated days before scanning raw checks in public uptime queries.
 - public-status.test.ts: Cover missing days between aggregates, exact UTC boundaries, raw-only history and indexed range query plans.
 - Compare a seven-day SQLite fixture: identical output, ~333k to ~48k VM instructions; these are local execution measurements, not production D1 rows_read or Worker CPU.
 - Verify 47 unit tests, changed-file lint, build, type check (0 errors; 11 existing warnings) and Wrangler dry-run. No migrations/bindings required; compare d1_query_completed after deployment.
+
+Reduce scanner and public status request costs.
+- Return unmatched routes through SvelteKit before setup/session D1 reads.
+- Cache anonymous public status HTML and JSON for sixty seconds in isolated Cloudflare Cache API storage; bypass cookies, authorization, queries, non-GET requests and unsafe responses.
+- Keep outward responses private/no-store so the adapter's pre-hook cache cannot bypass eligibility checks; preserve live serving on cache failures.
+- Include the pending indexed D1 history optimization from PR #4; no migrations or bindings required.
+- Verify 79 unit tests, changed-file ESLint/Prettier, production build, Wrangler dry-run and Svelte check (zero errors; eleven existing accessibility warnings).
