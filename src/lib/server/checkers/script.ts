@@ -254,7 +254,9 @@ async function executeStep(
 		const needsJson = paths.some((path) => path === 'json' || path.startsWith('json.'));
 		const needsBody =
 			needsJson || paths.some((path) => path === 'body' || path.startsWith('body.'));
-		const responseText = needsBody ? await readBoundedBody(response) : '';
+		const responseText = needsBody
+			? await readBoundedBody(response, getEarlyBodyMatches(step, needsJson))
+			: '';
 		if (!needsBody) await response.body?.cancel().catch(() => {});
 		const endTime = performance.now();
 
@@ -605,8 +607,27 @@ export function validateScript(script: string): { valid: boolean; error?: string
 	}
 }
 
+// Only positive contains checks can be decided before EOF. Other body consumers need the full body.
+function getEarlyBodyMatches(step: ScriptStep, needsJson: boolean): string[] | undefined {
+	if (needsJson || Object.keys(step.extract ?? {}).length > 0) return undefined;
+	const bodyAssertions = (step.assert ?? []).filter(
+		(assertion) => assertion.check === 'body' || assertion.check.startsWith('body.')
+	);
+	if (
+		!bodyAssertions.length ||
+		bodyAssertions.some(
+			(assertion) =>
+				assertion.check !== 'body' ||
+				typeof assertion.contains !== 'string' ||
+				Object.keys(assertion).some((key) => !['check', 'contains', 'severity'].includes(key))
+		)
+	)
+		return undefined;
+	return bodyAssertions.map((assertion) => assertion.contains!);
+}
+
 // Bound downloaded bytes before decoding or parsing untrusted monitor responses.
-async function readBoundedBody(response: Response): Promise<string> {
+async function readBoundedBody(response: Response, matches?: string[]): Promise<string> {
 	const reader = response.body?.getReader();
 	if (!reader) return '';
 	const decoder = new TextDecoder();
@@ -619,6 +640,7 @@ async function readBoundedBody(response: Response): Promise<string> {
 			bytes += value.byteLength;
 			if (bytes > 1024 * 1024) throw new Error('Response body exceeds 1 MiB limit');
 			text += decoder.decode(value, { stream: true });
+			if (matches?.every((match) => text.includes(match))) return text;
 		}
 	} finally {
 		await reader.cancel();

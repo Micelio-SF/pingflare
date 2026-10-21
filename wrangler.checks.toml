@@ -1,0 +1,61 @@
+# Three independent invocations preserve the one-minute cadence with a smaller CPU budget per run.
+# Build once with bun run build; deploy each named environment before switching the main cron.
+name = "pingflare-checks"
+main = "dist/_scheduler.js"
+compatibility_date = "2025-11-17"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+preview_urls = false
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+[env.shard-0]
+name = "pingflare-checks-0"
+
+[env.shard-0.vars]
+MONITOR_SHARD_INDEX = "0"
+MONITOR_SHARD_COUNT = "3"
+
+[env.shard-0.triggers]
+crons = ["*/1 * * * *"]
+
+[[env.shard-0.d1_databases]]
+binding = "DB"
+database_name = "pingflare-db"
+database_id = "aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd"
+migrations_dir = "migrations"
+
+[env.shard-1]
+name = "pingflare-checks-1"
+
+[env.shard-1.vars]
+MONITOR_SHARD_INDEX = "1"
+MONITOR_SHARD_COUNT = "3"
+
+[env.shard-1.triggers]
+crons = ["*/1 * * * *"]
+
+[[env.shard-1.d1_databases]]
+binding = "DB"
+database_name = "pingflare-db"
+database_id = "aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd"
+migrations_dir = "migrations"
+
+[env.shard-2]
+name = "pingflare-checks-2"
+
+[env.shard-2.vars]
+MONITOR_SHARD_INDEX = "2"
+MONITOR_SHARD_COUNT = "3"
+
+[env.shard-2.triggers]
+crons = ["*/1 * * * *"]
+
+[[env.shard-2.d1_databases]]
+binding = "DB"
+database_name = "pingflare-db"
+database_id = "aae83e5f-a3a7-4b2c-9f2a-051c5db95dfd"
+migrations_dir = "migrations"

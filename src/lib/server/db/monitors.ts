@@ -9,10 +9,27 @@ export async function getAllMonitors(db: D1Database): Promise<Monitor[]> {
 	return result.results;
 }
 
-export async function getActiveMonitors(db: D1Database): Promise<Monitor[]> {
+export type MonitorWithLastCheck = Monitor & {
+	last_checked_at: string | null;
+	previous_status: MonitorStatus | null;
+};
+
+export async function getActiveMonitorsWithLastCheck(
+	db: D1Database
+): Promise<MonitorWithLastCheck[]> {
 	const result = await db
-		.prepare('SELECT * FROM monitors WHERE active = 1 ORDER BY created_at DESC')
-		.all<Monitor>();
+		.prepare(
+			`
+		SELECT m.*, c.checked_at AS last_checked_at, c.status AS previous_status
+		FROM monitors m
+		LEFT JOIN checks c ON c.id = (
+			SELECT id FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC, id DESC LIMIT 1
+		)
+		WHERE m.active = 1
+		ORDER BY m.id
+	`
+		)
+		.all<MonitorWithLastCheck>();
 	return result.results;
 }
 
