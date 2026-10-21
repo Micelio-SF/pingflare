@@ -88,9 +88,7 @@ wrangler d1 create pingflare-db
 # Update wrangler.toml with your database ID
 bun run build
 wrangler d1 migrations apply DB --remote
-wrangler deploy --config wrangler.checks.toml --env shard-0
-wrangler deploy --config wrangler.checks.toml --env shard-1
-wrangler deploy --config wrangler.checks.toml --env shard-2
+bun run deploy:checks
 wrangler deploy
 
 # Set the cron secret (required for manual HTTP health checks)
@@ -166,3 +164,11 @@ found; JSON, extraction and other body assertions retain bounded full-body reads
 A positive match measures response time up to that match rather than the remaining
 body download. Missing text still reads to EOF or the existing 1 MiB limit.
 `GET /api/cron` remains a secret-protected manual run of the full monitor set.
+
+Workers Builds injects `WRANGLER_CI_OVERRIDE_NAME` and `WRANGLER_CI_MATCH_TAG`
+for the connected main Worker. `deploy:checks` removes these two targeting values
+only from each shard deployment subprocess, allowing its explicit Wrangler
+configuration to select `pingflare-checks-0/1/2`. Authentication and account values
+remain inherited. The final main deployment retains both CI targeting values.
+Do not replace `bun run deploy:checks` with bare shard deploy commands inside a
+connected build: Wrangler would override their names with the main Worker name.

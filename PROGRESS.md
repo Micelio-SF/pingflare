@@ -438,3 +438,7 @@ Reduce cron CPU through measured independent check invocations and bounded body 
 - Combine monitors/latest checks in one query with deterministic ties; stop compatible positive body searches early and exclude scheduler code from static assets.
 - Measure sequential scheduled replays: original ~6.5 ms versus final ~2.2–2.7 ms per partition (CDP active samples, not Cloudflare CPU accounting); 98 tests pass including cancellation regression, partition ownership, failure isolation, recovery notifications and daily retention. Build, changed-file ESLint, type check (0 errors, 11 existing warnings) and four Wrangler dry-runs pass.
 - TODO: Restore Wrangler authentication, deploy all three check Workers before main, and verify production CPU including state-change notification traffic. No deployment or commit performed.
+
+Fix independent check Worker targeting inside connected Cloudflare builds.
+- Scope removal of WRANGLER_CI_OVERRIDE_NAME and WRANGLER_CI_MATCH_TAG to shard deploy subprocesses; preserve main targeting and credentials. Document mandatory deploy:checks wrapper.
+- Reproduce original name override with injected CI variables and validate all three corrected shard dry-runs; no production deploy performed.

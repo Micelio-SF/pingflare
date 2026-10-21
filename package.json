@@ -49,7 +49,7 @@
 		"test": "bun test",
 		"test:watch": "bun test --watch",
 		"test:coverage": "bun test --coverage",
-		"deploy:checks": "wrangler deploy --config wrangler.checks.toml --env shard-0 && wrangler deploy --config wrangler.checks.toml --env shard-1 && wrangler deploy --config wrangler.checks.toml --env shard-2"
+		"deploy:checks": "env -u WRANGLER_CI_OVERRIDE_NAME -u WRANGLER_CI_MATCH_TAG wrangler deploy --config wrangler.checks.toml --env shard-0 && env -u WRANGLER_CI_OVERRIDE_NAME -u WRANGLER_CI_MATCH_TAG wrangler deploy --config wrangler.checks.toml --env shard-1 && env -u WRANGLER_CI_OVERRIDE_NAME -u WRANGLER_CI_MATCH_TAG wrangler deploy --config wrangler.checks.toml --env shard-2"
 	},
 	"type": "module",
 	"cloudflare": {
