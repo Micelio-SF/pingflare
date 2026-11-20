@@ -1,5 +1,5 @@
 import type { D1Database } from '@cloudflare/workers-types';
-import type { DailyStatus } from '$lib/types/status';
+import type { DiagnosticDailyStatus } from '$lib/types/status';
 import { readD1 } from './diagnostics';
 
 export interface DailyCounts {
@@ -73,7 +73,7 @@ export async function getMonitorHistory(db: D1Database, monitorId: string, reque
 	);
 	const byDate = new Map(rows.map((row) => [row.date, row]));
 	const start = Date.parse(cutoff + 'T00:00:00Z');
-	const dailyStatus: DailyStatus[] = Array.from({ length: 90 }, (_, index) => {
+	const dailyStatus: DiagnosticDailyStatus[] = Array.from({ length: 90 }, (_, index) => {
 		const date = new Date(start + index * 86400000).toISOString().slice(0, 10);
 		const row = byDate.get(date);
 		return {

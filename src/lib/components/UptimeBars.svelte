@@ -68,6 +68,7 @@
 	let tooltipY = $state(0);
 
 	function dayDetails(day: DailyStatus): string {
+		if (day.total_checks === undefined) return '';
 		if (day.status === 'none') return 'No checks recorded';
 		const checkWord = (count: number) => (count === 1 ? 'check' : 'checks');
 		const details = [`${day.total_checks} ${checkWord(day.total_checks)}`];
@@ -169,7 +170,9 @@
 					</span>
 				{/if}
 			</div>
-			<p class="mt-2 max-w-72 text-sm text-gray-600">{dayDetails(hoveredDay)}.</p>
+			{#if hoveredDay.total_checks !== undefined}
+				<p class="mt-2 max-w-72 text-sm text-gray-600">{dayDetails(hoveredDay)}.</p>
+			{/if}
 		{/if}
 	</div>
 {/if}

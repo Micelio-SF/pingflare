@@ -162,7 +162,23 @@ export async function getPublicGroupsWithStatus(db: D1Database): Promise<GroupWi
 		)
 		.all<MonitorGroup>();
 
-	return Promise.all(groups.results.map((group) => getGroupWithStatus(db, group)));
+	return Promise.all(
+		groups.results.map(async (group) => publicGroupStatus(await getGroupWithStatus(db, group)))
+	);
+}
+
+function publicGroupStatus(group: GroupWithStatus): GroupWithStatus {
+	return {
+		...group,
+		monitors: group.monitors.map((monitor) => ({
+			...monitor,
+			daily_status: monitor.daily_status.map(({ date, status, downtime_minutes }) => ({
+				date,
+				status,
+				downtime_minutes
+			}))
+		}))
+	};
 }
 
 export async function getGroupWithStatusBySlug(
@@ -178,7 +194,7 @@ export async function getGroupWithStatusBySlug(
 		requestId
 	);
 	if (!group) return null;
-	return getGroupWithStatus(db, group, requestId);
+	return publicGroupStatus(await getGroupWithStatus(db, group, requestId));
 }
 
 export async function getAllGroupsWithStatus(db: D1Database): Promise<GroupWithStatus[]> {

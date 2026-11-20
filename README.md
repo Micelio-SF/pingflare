@@ -130,7 +130,7 @@ attempts. Scripts are never replayed inside an invocation, including scripts
 that POST. Recovery from an unconfirmed failure sends no recovery notification.
 
 Daily bars are red only for confirmed consecutive failures. An isolated failed
-attempt stays visible in the details of a green bar; the live state is degraded
+attempt produces a plain green bar; the live state is degraded
 while the first failure awaits confirmation. Slow responses and other degraded
 responses remain yellow.
 
@@ -139,13 +139,15 @@ within each monitor, including across midnight. It preserves observed results,
 errors, IDs, timestamps, and every row. Complete daily aggregates are rebuilt;
 partial aggregates retain their totals and adjust only failures whose retained
 neighbors establish a classification. A single failed attempt estimated at at
-most one minute is green when only incomplete daily evidence remains; its detail
+most one minute is green when only incomplete daily evidence remains; its internal record
 explicitly marks this as an inference. Multiple historical failures without their
 sequence remain yellow, not confirmed red.
 
 Availability counts public `down` results, including unresolved historical
 failures, as unavailable. Reclassified isolated failures count as available but
-remain in evidence counts. Downtime minutes are estimates from the proportion of
+remain in internal evidence counts. Public HTML, Svelte page data, and the public
+JSON endpoint include only date, status, and downtime per day; diagnostic counters
+and inference notes are restricted to admin data. Downtime minutes are estimates from the proportion of
 failed checks, not measured incident durations. The `uptime_24h` and `uptime_90d`
 API names remain unchanged.
 

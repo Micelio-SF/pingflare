@@ -77,10 +77,6 @@
 				<h2 class="text-lg font-semibold text-gray-900">Monitors</h2>
 				<p class="text-sm text-gray-500">Availability over the past 90 days</p>
 			</div>
-			<p class="mt-2 text-sm text-gray-500">
-				Red marks confirmed consecutive failures. Isolated failures remain in the details of green
-				bars. Yellow marks degraded responses or historical failures whose sequence is unavailable.
-			</p>
 		</div>
 
 		{#if data.group.monitors.length > 0}

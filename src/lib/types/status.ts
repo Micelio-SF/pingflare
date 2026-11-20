@@ -5,14 +5,16 @@ export interface DailyStatus {
 	date: string; // YYYY-MM-DD
 	status: 'up' | 'down' | 'degraded' | 'none';
 	downtime_minutes: number;
-	total_checks: number;
-	confirmed_down_checks: number;
-	unconfirmed_checks: number;
-	slow_checks: number;
-	legacy_down_checks: number;
-	inferred_isolated_checks: number;
-	other_degraded_checks: number;
+	total_checks?: number;
+	confirmed_down_checks?: number;
+	unconfirmed_checks?: number;
+	slow_checks?: number;
+	legacy_down_checks?: number;
+	inferred_isolated_checks?: number;
+	other_degraded_checks?: number;
 }
+
+export type DiagnosticDailyStatus = Required<DailyStatus>;
 
 // Monitor with uptime data for status page
 export interface StatusMonitor {

@@ -3,7 +3,12 @@ import { Database } from 'bun:sqlite';
 import { readFileSync } from 'node:fs';
 import type { D1Database } from '@cloudflare/workers-types';
 import { getMonitorHistory, historyCutoff, DAILY_COUNTS_SQL } from './history';
-import { getPublicGroupSummaries, getGroupWithStatusBySlug } from './groups';
+import {
+	getPublicGroupSummaries,
+	getGroupWithStatusBySlug,
+	getPublicGroupsWithStatus,
+	getAllGroupsWithStatus
+} from './groups';
 import { getPublicIncidents, groupIncidentDates } from './public-incidents';
 import { readD1 } from './diagnostics';
 import { aggregateDailyStatus } from './status';
@@ -314,6 +319,50 @@ describe('historical check confirmation migration', () => {
 });
 
 describe('public status data', () => {
+	it('publishes only daily colors and downtime while retaining isolated and inferred evidence for admins', async () => {
+		const { sqlite, db } = fixture();
+		const insert = sqlite.query(`INSERT INTO daily_status
+			(monitor_id,date,total_checks,up_checks,down_checks,degraded_checks,downtime_minutes,
+			unconfirmed_checks,inferred_isolated_checks,legacy_down_checks)
+			VALUES ('one',?,?,?,?,?,?,?,?,?)`);
+		insert.run(day(-3), 100, 98, 2, 0, 29, 0, 0, 2);
+		insert.run(day(-2), 1440, 1439, 0, 1, 0, 1, 1, 0);
+		insert.run(day(-1), 1, 0, 0, 1, 0, 1, 0, 0);
+		const publicGroups = await getPublicGroupsWithStatus(db);
+		const publicDetail = await getGroupWithStatusBySlug(db, 'public');
+		for (const group of [
+			publicGroups.find((candidate) => candidate.id === 'public'),
+			publicDetail
+		]) {
+			const monitor = group?.monitors.find((candidate) => candidate.id === 'one');
+			expect(monitor?.daily_status.filter((row) => row.status !== 'none')).toEqual([
+				{ date: day(-3), status: 'degraded', downtime_minutes: 29 },
+				{ date: day(-2), status: 'up', downtime_minutes: 0 },
+				{ date: day(-1), status: 'up', downtime_minutes: 0 }
+			]);
+		}
+		const adminGroups = await getAllGroupsWithStatus(db);
+		const adminMonitor = adminGroups
+			.find((group) => group.id === 'public')
+			?.monitors.find((monitor) => monitor.id === 'one');
+		expect(adminMonitor?.daily_status.find((row) => row.date === day(-3))).toMatchObject({
+			status: 'degraded',
+			total_checks: 100,
+			legacy_down_checks: 2,
+			confirmed_down_checks: 0
+		});
+		expect(adminMonitor?.daily_status.find((row) => row.date === day(-2))).toMatchObject({
+			status: 'up',
+			unconfirmed_checks: 1,
+			inferred_isolated_checks: 1
+		});
+		expect(adminMonitor?.daily_status.find((row) => row.date === day(-1))).toMatchObject({
+			status: 'up',
+			unconfirmed_checks: 1,
+			inferred_isolated_checks: 0
+		});
+	});
+
 	it('shows an isolated failure as a green day while retaining its detail and live degraded state', async () => {
 		const { sqlite, db } = fixture();
 		const yesterday = day(-1);
