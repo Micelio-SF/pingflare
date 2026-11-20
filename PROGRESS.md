@@ -442,3 +442,8 @@ Reduce cron CPU through measured independent check invocations and bounded body 
 Fix independent check Worker targeting inside connected Cloudflare builds.
 - Scope removal of WRANGLER_CI_OVERRIDE_NAME and WRANGLER_CI_MATCH_TAG to shard deploy subprocesses; preserve main targeting and credentials. Document mandatory deploy:checks wrapper.
 - Reproduce original name override with injected CI variables and validate all three corrected shard dry-runs; no production deploy performed.
+
+Confirm outages without hiding isolated failures.
+- Separate observed/public states, confirm consecutive failures, retry next scheduled tick, retain 30d raw evidence and correlate run ID/CF-Ray. Preserve Ray IDs when body reading fails.
+- Show isolated failures in plain green public bars; restrict evidence counts and inference notes to admin data, slow responses and unknown historical sequences in yellow, and confirmed consecutive failures in red. Reclassify retained historical neighbors and infer daily-only one-minute singletons explicitly. Align overview/detail availability; retain unknown historical confirmation and label downtime estimates.
+- Apply migration 0007 locally; 123 tests pass, build and type check pass (0 errors, 11 existing warnings); changed logic lint passes. Full ESLint retains 14 pre-existing each-key errors. Verify local public UI/tooltips against isolated D1 fixtures. No production deployment or commit.

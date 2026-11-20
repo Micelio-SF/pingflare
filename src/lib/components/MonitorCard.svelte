@@ -81,7 +81,7 @@
 
 	<div class="mt-4 grid grid-cols-3 gap-2 border-t border-gray-100 pt-3 text-center">
 		<div>
-			<p class="text-xs text-gray-500">Uptime</p>
+			<p class="text-xs text-gray-500">Availability</p>
 			<p class="text-sm font-medium text-gray-900">
 				{formatUptime(monitor.uptime_24h)}
 			</p>

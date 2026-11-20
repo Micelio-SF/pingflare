@@ -391,6 +391,40 @@ describe('executeScript', () => {
 });
 
 describe('response resource limits', () => {
+	it('preserves the received CF-Ray when the response body fails to load', async () => {
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () =>
+			new Response(
+				new ReadableStream(
+					{
+						pull(controller) {
+							controller.error(new Error('Body connection interrupted'));
+						}
+					},
+					{ highWaterMark: 0 }
+				),
+				{ status: 200, headers: { 'cf-ray': 'abcdef-SCL' } }
+			)) as typeof fetch;
+		try {
+			const result = await executeScript(
+				JSON.stringify({
+					steps: [
+						{
+							name: 'body',
+							request: { method: 'GET', url: 'https://example.com' },
+							assert: [{ check: 'body', contains: 'healthy' }]
+						}
+					]
+				})
+			);
+			expect(result.status).toBe('down');
+			expect(result.errorMessage).toContain('Body connection interrupted');
+			expect(result.cfRay).toBe('abcdef-SCL');
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
 	it('does not consume bodies for status-only checks', async () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = (async () =>

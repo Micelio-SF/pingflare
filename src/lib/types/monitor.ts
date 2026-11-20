@@ -21,6 +21,10 @@ export interface Check {
 	error_message: string | null;
 	checked_at: string;
 	checked_from: string | null;
+	observed_status: MonitorStatus | null;
+	is_slow: number;
+	cf_ray: string | null;
+	run_id: string | null;
 }
 
 export interface CreateMonitorInput {

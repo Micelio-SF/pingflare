@@ -12,6 +12,7 @@ export async function getAllMonitors(db: D1Database): Promise<Monitor[]> {
 export type MonitorWithLastCheck = Monitor & {
 	last_checked_at: string | null;
 	previous_status: MonitorStatus | null;
+	previous_observed_status: MonitorStatus | null;
 };
 
 export async function getActiveMonitorsWithLastCheck(
@@ -20,7 +21,8 @@ export async function getActiveMonitorsWithLastCheck(
 	const result = await db
 		.prepare(
 			`
-		SELECT m.*, c.checked_at AS last_checked_at, c.status AS previous_status
+		SELECT m.*, c.checked_at AS last_checked_at, c.status AS previous_status,
+		       c.observed_status AS previous_observed_status
 		FROM monitors m
 		LEFT JOIN checks c ON c.id = (
 			SELECT id FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC, id DESC LIMIT 1
@@ -130,14 +132,32 @@ export async function insertCheck(
 	responseTimeMs: number | null,
 	statusCode: number | null,
 	errorMessage: string | null,
-	checkedFrom: string | null
+	checkedFrom: string | null,
+	observedStatus: MonitorStatus,
+	cfRay: string | null,
+	runId: string,
+	checkedAt: string,
+	isSlow: boolean
 ): Promise<void> {
 	await db
 		.prepare(
-			`INSERT INTO checks (monitor_id, status, response_time_ms, status_code, error_message, checked_from)
-       VALUES (?, ?, ?, ?, ?, ?)`
+			`INSERT INTO checks (monitor_id, status, response_time_ms, status_code, error_message, checked_from,
+              observed_status, cf_ray, run_id, checked_at, is_slow)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 		)
-		.bind(monitorId, status, responseTimeMs, statusCode, errorMessage, checkedFrom)
+		.bind(
+			monitorId,
+			status,
+			responseTimeMs,
+			statusCode,
+			errorMessage,
+			checkedFrom,
+			observedStatus,
+			cfRay,
+			runId,
+			checkedAt,
+			isSlow ? 1 : 0
+		)
 		.run();
 }
 
@@ -161,7 +181,10 @@ export async function getLastCheck(db: D1Database, monitorId: string): Promise<C
 }
 
 export async function getUptime24h(db: D1Database, monitorId: string): Promise<number> {
-	const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+	const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+		.toISOString()
+		.replace('T', ' ')
+		.slice(0, 19);
 
 	const total = await db
 		.prepare('SELECT COUNT(*) as count FROM checks WHERE monitor_id = ? AND checked_at > ?')
@@ -170,7 +193,7 @@ export async function getUptime24h(db: D1Database, monitorId: string): Promise<n
 
 	const up = await db
 		.prepare(
-			"SELECT COUNT(*) as count FROM checks WHERE monitor_id = ? AND checked_at > ? AND status = 'up'"
+			"SELECT COUNT(*) as count FROM checks WHERE monitor_id = ? AND checked_at > ? AND status != 'down'"
 		)
 		.bind(monitorId, twentyFourHoursAgo)
 		.first<{ count: number }>();
@@ -182,8 +205,14 @@ export async function getUptime24h(db: D1Database, monitorId: string): Promise<n
 	return Math.round(((up?.count ?? 0) / total.count) * 10000) / 100;
 }
 
-export async function cleanupOldChecks(db: D1Database, retentionDays: number = 7): Promise<number> {
-	const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+export async function cleanupOldChecks(
+	db: D1Database,
+	retentionDays: number = 30
+): Promise<number> {
+	const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000)
+		.toISOString()
+		.replace('T', ' ')
+		.slice(0, 19);
 	const result = await db.prepare('DELETE FROM checks WHERE checked_at < ?').bind(cutoff).run();
 	return result.meta.changes;
 }

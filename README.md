@@ -118,6 +118,50 @@ Contributions welcome! Feel free to open issues and pull requests.
 
 MIT
 
+### Failure confirmation
+
+Each scheduled attempt keeps its observed result in `checks.observed_status`.
+The public `status` is `degraded` after the first failed attempt. A second failed
+attempt confirms `down` only when the preceding observation failed and started
+within two cron ticks plus the monitor timeout. An intervening success, degraded
+response, missing observation, or longer monitoring gap breaks confirmation.
+Failing monitors run on the next cron tick, with at least 30 seconds between
+attempts. Scripts are never replayed inside an invocation, including scripts
+that POST. Recovery from an unconfirmed failure sends no recovery notification.
+
+Daily bars are red only for confirmed consecutive failures. An isolated failed
+attempt produces a plain green bar; the live state is degraded
+while the first failure awaits confirmation. Slow responses and other degraded
+responses remain yellow.
+
+Migration `0007` classifies retained historical attempts by timestamp and ID,
+within each monitor, including across midnight. It preserves observed results,
+errors, IDs, timestamps, and every row. Complete daily aggregates are rebuilt;
+partial aggregates retain their totals and adjust only failures whose retained
+neighbors establish a classification. A single failed attempt estimated at at
+most one minute is green when only incomplete daily evidence remains; its internal record
+explicitly marks this as an inference. Multiple historical failures without their
+sequence remain yellow, not confirmed red.
+
+Availability counts public `down` results, including unresolved historical
+failures, as unavailable. Reclassified isolated failures count as available but
+remain in internal evidence counts. Public HTML, Svelte page data, and the public
+JSON endpoint include only date, status, and downtime per day; diagnostic counters
+and inference notes are restricted to admin data. Downtime minutes are estimates from the proportion of
+failed checks, not measured incident durations. The `uptime_24h` and `uptime_90d`
+API names remain unchanged.
+
+Raw observations are retained for 30 days; daily aggregates remain for 365 days.
+Attempt timestamps record the start, so response latency does not postpone the
+next normal check by a complete interval. `run_id` links observations to logs.
+`cf_ray` and `checked_from` identify the Cloudflare edge answering the last script
+step, when supplied by the target. They do not claim to identify where the cron
+Worker executed. Timeouts can have no Ray ID because no response arrived.
+
+Apply migration `0007_check_confirmation.sql` before deploying the check Workers
+and UI. Older Workers can still write observations during rollout; those records
+remain marked as historical until all shards run the new version.
+
 ### Worker diagnostics
 
 Workers Logs and invocation logs are enabled in `wrangler.toml`. Deploy the updated

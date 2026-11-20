@@ -72,9 +72,11 @@
 
 	<!-- Monitors with Uptime Bars -->
 	<div class="mb-8">
-		<div class="mb-4 flex items-center justify-between">
-			<h2 class="text-lg font-semibold text-gray-900">Monitors</h2>
-			<p class="text-sm text-gray-500">Uptime over the past 90 days</p>
+		<div class="mb-4">
+			<div class="flex flex-wrap items-center justify-between gap-2">
+				<h2 class="text-lg font-semibold text-gray-900">Monitors</h2>
+				<p class="text-sm text-gray-500">Availability over the past 90 days</p>
+			</div>
 		</div>
 
 		{#if data.group.monitors.length > 0}

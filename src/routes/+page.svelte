@@ -113,7 +113,9 @@
 						<span class="text-gray-500"
 							>{group.monitors.length} monitor{group.monitors.length === 1 ? '' : 's'}</span
 						>
-						<span class="font-medium text-gray-700">{group.uptime_90d.toFixed(2)}% uptime</span>
+						<span class="font-medium text-gray-700"
+							>{group.uptime_90d.toFixed(2)}% availability</span
+						>
 					</div>
 				</a>
 			{/each}

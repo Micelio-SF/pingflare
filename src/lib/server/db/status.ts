@@ -1,6 +1,6 @@
-import { getMonitorHistory } from './history';
+import { getMonitorHistory, type DailyCounts } from './history';
 import type { D1Database } from '@cloudflare/workers-types';
-import type { Monitor, Check, MonitorStatus } from '$lib/types/monitor';
+import type { Monitor, Check } from '$lib/types/monitor';
 import type {
 	DailyStatus,
 	StatusMonitor,
@@ -53,7 +53,10 @@ export async function getAllMonitorsForStatusPage(db: D1Database): Promise<Statu
 				id: monitor.id,
 				name: monitor.name,
 				group_id: monitor.group_id,
-				current_status: lastCheck?.status ?? null,
+				current_status:
+					lastCheck?.status === 'down' && lastCheck.observed_status === null
+						? 'degraded'
+						: (lastCheck?.status ?? null),
 				uptime_90d: history.uptime90d,
 				daily_status: history.dailyStatus
 			};
@@ -61,47 +64,6 @@ export async function getAllMonitorsForStatusPage(db: D1Database): Promise<Statu
 	);
 
 	return statusMonitors;
-}
-
-/**
- * Get effective status for dashboard display
- * Returns 'down' only if last 5 consecutive minutes worth of checks are down
- */
-export async function getEffectiveStatus(
-	db: D1Database,
-	monitorId: string,
-	intervalSeconds: number
-): Promise<MonitorStatus | null> {
-	// Calculate how many checks in 5 minutes
-	const checksIn5Min = Math.max(1, Math.ceil(300 / intervalSeconds));
-
-	const recentChecks = await db
-		.prepare(
-			`
-			SELECT status FROM checks
-			WHERE monitor_id = ?
-			ORDER BY checked_at DESC
-			LIMIT ?
-		`
-		)
-		.bind(monitorId, checksIn5Min)
-		.all<{ status: MonitorStatus }>();
-
-	if (recentChecks.results.length === 0) return null;
-
-	// If all recent checks are 'down', return 'down'
-	const allDown = recentChecks.results.every((c) => c.status === 'down');
-	if (allDown && recentChecks.results.length >= checksIn5Min) {
-		return 'down';
-	}
-
-	// Otherwise return the most recent status (but treat single failure as still up)
-	const mostRecent = recentChecks.results[0].status;
-	if (mostRecent === 'down') {
-		// Not enough consecutive failures, show as degraded
-		return 'degraded';
-	}
-	return mostRecent;
 }
 
 /**
@@ -121,20 +83,17 @@ export async function aggregateDailyStatus(db: D1Database): Promise<void> {
 				COUNT(*) as total_checks,
 				SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END) as up_checks,
 				SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) as down_checks,
-				SUM(CASE WHEN status = 'degraded' THEN 1 ELSE 0 END) as degraded_checks
+				SUM(CASE WHEN status = 'degraded' THEN 1 ELSE 0 END) as degraded_checks,
+				SUM(CASE WHEN observed_status = 'down' AND status = 'degraded' THEN 1 ELSE 0 END) AS unconfirmed_checks,
+				SUM(CASE WHEN is_slow = 1 AND status = 'degraded' THEN 1 ELSE 0 END) AS slow_checks,
+				SUM(CASE WHEN observed_status IS NULL AND status = 'down' THEN 1 ELSE 0 END) AS legacy_down_checks
 			FROM checks
-			WHERE DATE(checked_at) = ?
+			WHERE checked_at >= ? AND checked_at < DATETIME(?, '+1 day')
 			GROUP BY monitor_id
 		`
 		)
-		.bind(dateStr)
-		.all<{
-			monitor_id: string;
-			total_checks: number;
-			up_checks: number;
-			down_checks: number;
-			degraded_checks: number;
-		}>();
+		.bind(dateStr + ' 00:00:00', dateStr)
+		.all<DailyCounts>();
 
 	for (const agg of aggregates.results) {
 		const downtimeMinutes = Math.round((agg.down_checks / agg.total_checks) * 24 * 60);
@@ -142,14 +101,19 @@ export async function aggregateDailyStatus(db: D1Database): Promise<void> {
 		await db
 			.prepare(
 				`
-				INSERT INTO daily_status (monitor_id, date, total_checks, up_checks, down_checks, degraded_checks, downtime_minutes)
-				VALUES (?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO daily_status (monitor_id, date, total_checks, up_checks, down_checks, degraded_checks,
+				    downtime_minutes, unconfirmed_checks, slow_checks, legacy_down_checks, inferred_isolated_checks)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
 				ON CONFLICT(monitor_id, date) DO UPDATE SET
 					total_checks = excluded.total_checks,
 					up_checks = excluded.up_checks,
 					down_checks = excluded.down_checks,
 					degraded_checks = excluded.degraded_checks,
-					downtime_minutes = excluded.downtime_minutes
+					downtime_minutes = excluded.downtime_minutes,
+					unconfirmed_checks = excluded.unconfirmed_checks,
+					slow_checks = excluded.slow_checks,
+					legacy_down_checks = excluded.legacy_down_checks,
+					inferred_isolated_checks = excluded.inferred_isolated_checks
 			`
 			)
 			.bind(
@@ -159,7 +123,10 @@ export async function aggregateDailyStatus(db: D1Database): Promise<void> {
 				agg.up_checks,
 				agg.down_checks,
 				agg.degraded_checks,
-				downtimeMinutes
+				downtimeMinutes,
+				agg.unconfirmed_checks,
+				agg.slow_checks,
+				agg.legacy_down_checks
 			)
 			.run();
 	}
