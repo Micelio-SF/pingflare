@@ -6,9 +6,12 @@ export interface ScriptCheckResult {
 	responseTimeMs: number;
 	statusCode: number | null;
 	errorMessage: string | null;
+	cfRay?: string | null;
+	isSlow?: boolean;
 }
 
 interface AssertionResult {
+	check?: string;
 	passed: boolean;
 	message: string;
 	severity: 'degraded' | 'down';
@@ -68,6 +71,7 @@ export async function executeScript(
 	timeoutMs: number = 30000
 ): Promise<ScriptCheckResult> {
 	const startTime = performance.now();
+	let cfRay: string | null = null;
 
 	try {
 		// Parse the DSL
@@ -85,6 +89,7 @@ export async function executeScript(
 			const result = await executeStep(step, variables, timeoutMs);
 			results.push(result);
 			lastStatusCode = result.status;
+			cfRay = result.headers['cf-ray'] ?? null;
 
 			if (result.error) {
 				anyRequestFailed = true;
@@ -120,11 +125,15 @@ export async function executeScript(
 				status: 'down',
 				responseTimeMs,
 				statusCode: lastStatusCode,
+				cfRay,
 				errorMessage: `Step "${failedStep?.name}" failed: ${failedStep?.error}`
 			};
 		}
 
 		if (hasDownFailure || hasDegradedFailure) {
+			const isSlow = results.some((step) =>
+				step.assertions.some((assertion) => assertion.check === 'responseTime' && !assertion.passed)
+			);
 			const failedByStep = results
 				.filter((r) => r.assertions.some((a) => !a.passed))
 				.map((r) => ({
@@ -164,6 +173,8 @@ export async function executeScript(
 				status: hasDownFailure ? 'down' : 'degraded',
 				responseTimeMs,
 				statusCode: lastStatusCode,
+				cfRay,
+				isSlow,
 				errorMessage
 			};
 		}
@@ -172,6 +183,7 @@ export async function executeScript(
 			status: 'up',
 			responseTimeMs,
 			statusCode: lastStatusCode,
+			cfRay,
 			errorMessage: null
 		};
 	} catch (err) {
@@ -180,6 +192,7 @@ export async function executeScript(
 			status: 'down',
 			responseTimeMs: Math.round(endTime - startTime),
 			statusCode: null,
+			cfRay,
 			errorMessage: `Script error: ${err instanceof Error ? err.message : 'Unknown error'}`
 		};
 	}
@@ -210,6 +223,7 @@ async function executeStep(
 	const startTime = performance.now();
 	const controller = new AbortController();
 	const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+	const responseHeaders: Record<string, string> = {};
 
 	try {
 		// Interpolate variables in URL
@@ -246,6 +260,9 @@ async function executeStep(
 			body,
 			signal: controller.signal
 		});
+		response.headers.forEach((value, key) => {
+			responseHeaders[key] = value;
+		});
 
 		const paths = [
 			...(step.assert ?? []).map((assertion) => assertion.check),
@@ -269,11 +286,6 @@ async function executeStep(
 			}
 		}
 
-		const responseHeaders: Record<string, string> = {};
-		response.headers.forEach((value, key) => {
-			responseHeaders[key] = value;
-		});
-
 		// Run assertions
 		const assertions: AssertionResult[] = [];
 		if (step.assert) {
@@ -285,7 +297,7 @@ async function executeStep(
 					headers: responseHeaders,
 					responseTime: Math.round(endTime - startTime)
 				});
-				assertions.push(result);
+				assertions.push({ ...result, check: assertion.check });
 			}
 		}
 
@@ -307,7 +319,7 @@ async function executeStep(
 			responseTimeMs: Math.round(endTime - startTime),
 			body: '',
 			json: null,
-			headers: {},
+			headers: responseHeaders,
 			error: err instanceof Error ? err.message : 'Request failed',
 			assertions: []
 		};

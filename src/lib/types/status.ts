@@ -5,6 +5,13 @@ export interface DailyStatus {
 	date: string; // YYYY-MM-DD
 	status: 'up' | 'down' | 'degraded' | 'none';
 	downtime_minutes: number;
+	total_checks: number;
+	confirmed_down_checks: number;
+	unconfirmed_checks: number;
+	slow_checks: number;
+	legacy_down_checks: number;
+	inferred_isolated_checks: number;
+	other_degraded_checks: number;
 }
 
 // Monitor with uptime data for status page
@@ -81,7 +88,7 @@ export function getOverallStatusText(status: OverallStatus): string {
 		case 'operational':
 			return 'All Systems Operational';
 		case 'degraded':
-			return 'Degraded Performance';
+			return 'Service Degradation';
 		case 'partial_outage':
 			return 'Partial System Outage';
 		case 'major_outage':

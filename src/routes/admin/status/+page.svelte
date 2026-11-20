@@ -118,7 +118,7 @@
 		<div class="mb-8">
 			<div class="flex items-center justify-between mb-4">
 				<h3 class="text-lg font-semibold text-gray-900">All Groups</h3>
-				<p class="text-sm text-gray-500">Uptime over the past 90 days</p>
+				<p class="text-sm text-gray-500">Availability over the past 90 days</p>
 			</div>
 
 			{#if data.groups.length > 0}
@@ -137,7 +137,9 @@
 										{group.monitors.length} monitor{group.monitors.length === 1 ? '' : 's'}
 									</span>
 								</div>
-								<span class="text-sm text-gray-500">{group.uptime_90d.toFixed(2)}% uptime</span>
+								<span class="text-sm text-gray-500"
+									>{group.uptime_90d.toFixed(2)}% availability</span
+								>
 							</div>
 
 							<!-- Monitors in this group -->

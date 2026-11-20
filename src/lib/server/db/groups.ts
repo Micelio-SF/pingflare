@@ -195,7 +195,8 @@ async function getGroupWithStatus(
 		db,
 		'group_monitor_status',
 		`SELECT m.id, m.name, m.group_id,
-   (SELECT status FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS current_status
+   (SELECT CASE WHEN status = 'down' AND observed_status IS NULL THEN 'degraded' ELSE status END
+    FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC, id DESC LIMIT 1) AS current_status
    FROM monitors m WHERE group_id = ? ORDER BY name`,
 		[group.id],
 		requestId
@@ -264,15 +265,16 @@ export async function getPublicGroupSummaries(
 			db,
 			'public_monitor_status',
 			`SELECT m.id, m.name, m.group_id,
-    (SELECT status FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) AS current_status
+    (SELECT CASE WHEN status = 'down' AND observed_status IS NULL THEN 'degraded' ELSE status END
+     FROM checks WHERE monitor_id = m.id ORDER BY checked_at DESC, id DESC LIMIT 1) AS current_status
     FROM monitors m WHERE ${scope} ORDER BY m.name`,
 			[],
 			requestId
 		),
-		readD1<{ monitor_id: string; total_checks: number; up_checks: number }>(
+		readD1<{ monitor_id: string; total_checks: number; down_checks: number }>(
 			db,
 			'public_uptime_totals',
-			`SELECT monitor_id, SUM(total_checks) AS total_checks, SUM(up_checks) AS up_checks
+			`SELECT monitor_id, SUM(total_checks) AS total_checks, SUM(down_checks) AS down_checks
     FROM (${DAILY_COUNTS_SQL.replaceAll('SCOPE', scope)}) GROUP BY monitor_id`,
 			[cutoff, cutoff + ' 00:00:00'],
 			requestId
@@ -281,7 +283,9 @@ export async function getPublicGroupSummaries(
 	const uptimes = new Map(
 		totals.map((row) => [
 			row.monitor_id,
-			row.total_checks ? Math.round((row.up_checks / row.total_checks) * 10000) / 100 : 100
+			row.total_checks
+				? Math.round(((row.total_checks - row.down_checks) / row.total_checks) * 10000) / 100
+				: 100
 		])
 	);
 	const byGroup = new Map<string | null, GroupSummary['monitors']>();

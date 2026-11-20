@@ -10,6 +10,10 @@ export interface DailyCounts {
 	down_checks: number;
 	degraded_checks: number;
 	downtime_minutes: number;
+	unconfirmed_checks: number;
+	slow_checks: number;
+	legacy_down_checks: number;
+	inferred_isolated_checks: number;
 }
 
 // Completed daily aggregates are authoritative; raw checks supply days not aggregated yet.
@@ -18,14 +22,19 @@ export interface DailyCounts {
 // CROSS JOIN fixes the loop order: monitor -> missing day -> indexed check range.
 export const DAILY_COUNTS_SQL = `
  SELECT d.monitor_id, d.date, d.total_checks, d.up_checks, d.down_checks,
-        d.degraded_checks, d.downtime_minutes
+        d.degraded_checks, d.downtime_minutes, d.unconfirmed_checks,
+        d.slow_checks, d.legacy_down_checks, d.inferred_isolated_checks
  FROM daily_status d JOIN monitors m ON m.id = d.monitor_id
  WHERE d.date >= ? AND SCOPE
  UNION ALL
  SELECT m.id AS monitor_id, days.date, COUNT(*) AS total_checks,
         SUM(c.status = 'up') AS up_checks, SUM(c.status = 'down') AS down_checks,
         SUM(c.status = 'degraded') AS degraded_checks,
-        ROUND(1440.0 * SUM(c.status = 'down') / COUNT(*)) AS downtime_minutes
+        ROUND(1440.0 * SUM(c.status = 'down') / COUNT(*)) AS downtime_minutes,
+        SUM(COALESCE(c.observed_status = 'down' AND c.status = 'degraded', 0)) AS unconfirmed_checks,
+        SUM(c.is_slow = 1 AND c.status = 'degraded') AS slow_checks,
+        SUM(c.observed_status IS NULL AND c.status = 'down') AS legacy_down_checks,
+        0 AS inferred_isolated_checks
  FROM monitors m CROSS JOIN (
    WITH RECURSIVE calendar(date) AS (
      SELECT DATE(?)
@@ -47,10 +56,10 @@ export function historyCutoff(now = new Date()): string {
 		.slice(0, 10);
 }
 
-export function calculateUptime(rows: Pick<DailyCounts, 'total_checks' | 'up_checks'>[]): number {
+export function calculateUptime(rows: Pick<DailyCounts, 'total_checks' | 'down_checks'>[]): number {
 	const total = rows.reduce((sum, row) => sum + row.total_checks, 0);
-	const up = rows.reduce((sum, row) => sum + row.up_checks, 0);
-	return total ? Math.round((up / total) * 10000) / 100 : 100;
+	const down = rows.reduce((sum, row) => sum + row.down_checks, 0);
+	return total ? Math.round(((total - down) / total) * 10000) / 100 : 100;
 }
 
 export async function getMonitorHistory(db: D1Database, monitorId: string, requestId?: string) {
@@ -71,12 +80,22 @@ export async function getMonitorHistory(db: D1Database, monitorId: string, reque
 			date,
 			status: !row?.total_checks
 				? 'none'
-				: row.down_checks > 0
+				: row.down_checks - row.legacy_down_checks > 0
 					? 'down'
-					: row.degraded_checks > 0
+					: row.legacy_down_checks > 0 || row.degraded_checks > row.unconfirmed_checks
 						? 'degraded'
 						: 'up',
-			downtime_minutes: row?.downtime_minutes ?? 0
+			downtime_minutes: row?.downtime_minutes ?? 0,
+			total_checks: row?.total_checks ?? 0,
+			confirmed_down_checks: (row?.down_checks ?? 0) - (row?.legacy_down_checks ?? 0),
+			unconfirmed_checks: row?.unconfirmed_checks ?? 0,
+			slow_checks: row?.slow_checks ?? 0,
+			legacy_down_checks: row?.legacy_down_checks ?? 0,
+			inferred_isolated_checks: row?.inferred_isolated_checks ?? 0,
+			other_degraded_checks: Math.max(
+				0,
+				(row?.degraded_checks ?? 0) - (row?.unconfirmed_checks ?? 0) - (row?.slow_checks ?? 0)
+			)
 		};
 	});
 	return { dailyStatus, uptime90d: calculateUptime(rows) };

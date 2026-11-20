@@ -6,6 +6,8 @@ import { getMonitorHistory, historyCutoff, DAILY_COUNTS_SQL } from './history';
 import { getPublicGroupSummaries, getGroupWithStatusBySlug } from './groups';
 import { getPublicIncidents, groupIncidentDates } from './public-incidents';
 import { readD1 } from './diagnostics';
+import { aggregateDailyStatus } from './status';
+import { getUptime24h } from './monitors';
 
 const databases: Database[] = [];
 let info: ReturnType<typeof spyOn<typeof console, 'info'>>;
@@ -17,11 +19,18 @@ afterEach(() => {
 	info.mockRestore();
 });
 
-function fixture() {
+function fixture(beforeConfirmation?: (sqlite: Database) => void) {
 	const sqlite = new Database(':memory:');
 	databases.push(sqlite);
 	sqlite.exec(
 		readFileSync(new URL('../../../../migrations/0001_schema.sql', import.meta.url), 'utf8')
+	);
+	beforeConfirmation?.(sqlite);
+	sqlite.exec(
+		readFileSync(
+			new URL('../../../../migrations/0007_check_confirmation.sql', import.meta.url),
+			'utf8'
+		)
 	);
 	sqlite.exec(`INSERT INTO monitor_groups(id,name,slug,is_public) VALUES
   ('public','Public','public',1),('private','Private','private',0),('empty','Empty','empty',1);
@@ -44,6 +53,11 @@ function fixture() {
 				async first() {
 					calls++;
 					return sqlite.query(sql).get(...bindings);
+				},
+				async run() {
+					calls++;
+					const result = sqlite.query(sql).run(...bindings);
+					return { success: true, meta: { changes: result.changes } };
 				}
 			};
 			return stmt;
@@ -59,7 +73,336 @@ function day(offset: number) {
 		.slice(0, 10);
 }
 
+describe('historical check confirmation migration', () => {
+	it.each([
+		{
+			name: 'one failure between successes',
+			statuses: ['up', 'down', 'up'],
+			seconds: [0, 60, 120],
+			confirmed: 0,
+			isolated: 1,
+			legacy: 0,
+			bars: ['up']
+		},
+		{
+			name: 'a consecutive pair',
+			statuses: ['up', 'down', 'down', 'up'],
+			seconds: [0, 60, 120, 180],
+			confirmed: 2,
+			isolated: 0,
+			legacy: 0,
+			bars: ['down']
+		},
+		{
+			name: 'failures separated by a success',
+			statuses: ['up', 'down', 'up', 'down', 'up'],
+			seconds: [0, 60, 120, 180, 240],
+			confirmed: 0,
+			isolated: 2,
+			legacy: 0,
+			bars: ['up']
+		},
+		{
+			name: 'failures separated by a degraded response',
+			statuses: ['up', 'down', 'degraded', 'down', 'up'],
+			seconds: [0, 60, 120, 180, 240],
+			confirmed: 0,
+			isolated: 2,
+			legacy: 0,
+			bars: ['degraded']
+		},
+		{
+			name: 'a pair inserted out of chronological order',
+			statuses: ['up', 'down', 'up', 'down'],
+			seconds: [0, 120, 180, 60],
+			confirmed: 2,
+			isolated: 0,
+			legacy: 0,
+			bars: ['down']
+		},
+		{
+			name: 'a pair across midnight',
+			statuses: ['up', 'down', 'down', 'up'],
+			seconds: [86280, 86340, 86400, 86460],
+			confirmed: 2,
+			isolated: 0,
+			legacy: 0,
+			bars: ['down', 'down']
+		},
+		{
+			name: 'a long monitoring gap',
+			statuses: ['up', 'down', 'down', 'up'],
+			seconds: [0, 60, 600, 660],
+			confirmed: 0,
+			isolated: 2,
+			legacy: 0,
+			bars: ['up']
+		},
+		{
+			name: 'tied timestamps ordered by insertion',
+			statuses: ['up', 'down', 'up', 'down', 'up'],
+			seconds: [0, 60, 60, 120, 180],
+			confirmed: 0,
+			isolated: 2,
+			legacy: 0,
+			bars: ['up']
+		},
+		{
+			name: 'duplicate attempts below the confirmation minimum',
+			statuses: ['up', 'down', 'down', 'up'],
+			seconds: [0, 60, 60, 120],
+			confirmed: 0,
+			isolated: 2,
+			legacy: 0,
+			bars: ['up']
+		},
+		{
+			name: 'missing context at both edges',
+			statuses: ['down', 'up', 'down'],
+			seconds: [0, 60, 120],
+			confirmed: 0,
+			isolated: 0,
+			legacy: 2,
+			bars: ['degraded']
+		},
+		{
+			name: 'a confirmed pair at the retention edges',
+			statuses: ['down', 'down'],
+			seconds: [0, 60],
+			confirmed: 2,
+			isolated: 0,
+			legacy: 0,
+			bars: ['down']
+		}
+	])(
+		'classifies $name without deleting or rewriting the observed evidence',
+		async ({ statuses, seconds, confirmed, isolated, legacy, bars }) => {
+			const date = day(-3);
+			let original: unknown[] = [];
+			const { sqlite, db } = fixture((database) => {
+				database.exec("INSERT INTO monitors(id,name,script) VALUES ('history','History','{}')");
+				const insert = database.query(
+					"INSERT INTO checks(monitor_id,status,error_message,checked_at) VALUES ('history',?,?,?)"
+				);
+				for (const [index, status] of statuses.entries()) {
+					const timestamp = new Date(Date.parse(date + 'T00:00:00Z') + seconds[index] * 1000)
+						.toISOString()
+						.replace('T', ' ')
+						.slice(0, 19);
+					insert.run(status, status === 'down' ? 'Original timeout' : null, timestamp);
+				}
+				original = database
+					.query('SELECT id,monitor_id,status,error_message,checked_at FROM checks ORDER BY id')
+					.all();
+			});
+			expect(
+				sqlite
+					.query(
+						'SELECT id,monitor_id,COALESCE(observed_status,status) AS status,error_message,checked_at FROM checks ORDER BY id'
+					)
+					.all()
+			).toEqual(original);
+			const history = await getMonitorHistory(db, 'history');
+			const populated = history.dailyStatus.filter((row) => row.total_checks > 0);
+			expect(populated.map((row) => row.status)).toEqual(bars);
+			expect(populated.reduce((sum, row) => sum + row.confirmed_down_checks, 0)).toBe(confirmed);
+			expect(populated.reduce((sum, row) => sum + row.unconfirmed_checks, 0)).toBe(isolated);
+			expect(populated.reduce((sum, row) => sum + row.legacy_down_checks, 0)).toBe(legacy);
+			expect(history.uptime90d).toBe(
+				Math.round(((statuses.length - confirmed - legacy) / statuses.length) * 10000) / 100
+			);
+		}
+	);
+
+	it('does not confirm failures from different monitors', async () => {
+		const date = day(-3);
+		const { db } = fixture((sqlite) => {
+			sqlite.exec(
+				"INSERT INTO monitors(id,name,script) VALUES ('first','First','{}'),('second','Second','{}')"
+			);
+			const insert = sqlite.query(
+				'INSERT INTO checks(monitor_id,status,checked_at) VALUES (?,?,?)'
+			);
+			for (const monitor of ['first', 'second']) {
+				insert.run(monitor, 'up', date + ' 00:00:00');
+				insert.run(monitor, 'down', date + (monitor === 'first' ? ' 00:01:00' : ' 00:02:00'));
+				insert.run(monitor, 'up', date + ' 00:03:00');
+			}
+		});
+		for (const monitor of ['first', 'second']) {
+			const history = await getMonitorHistory(db, monitor);
+			expect(history.uptime90d).toBe(100);
+			expect(history.dailyStatus.find((row) => row.date === date)).toMatchObject({
+				status: 'up',
+				total_checks: 3,
+				unconfirmed_checks: 1,
+				confirmed_down_checks: 0
+			});
+		}
+	});
+
+	it('rebuilds fully retained aggregates but preserves partial and missing sequences with explicit inference', async () => {
+		const date = day(-3);
+		const { sqlite, db } = fixture((database) => {
+			const monitor = database.query("INSERT INTO monitors(id,name,script) VALUES (?,?,'{}')");
+			for (const id of ['complete', 'partial', 'single', 'multiple', 'unknown'])
+				monitor.run(id, id);
+			const check = database.query(
+				'INSERT INTO checks(monitor_id,status,checked_at) VALUES (?,?,?)'
+			);
+			for (const id of ['complete', 'partial']) {
+				for (const [index, status] of ['up', 'down', 'up'].entries())
+					check.run(id, status, date + ` 00:0${index}:00`);
+			}
+			const aggregate = database.query(
+				'INSERT INTO daily_status(monitor_id,date,total_checks,up_checks,down_checks,degraded_checks,downtime_minutes) VALUES (?,?,?,?,?,0,?)'
+			);
+			aggregate.run('complete', date, 3, 2, 1, 480);
+			aggregate.run('partial', date, 100, 98, 2, 2);
+			aggregate.run('single', date, 1440, 1439, 1, 1);
+			aggregate.run('multiple', date, 1440, 1438, 2, 2);
+			aggregate.run('unknown', date, 10, 9, 1, 144);
+		});
+		const complete = await getMonitorHistory(db, 'complete');
+		expect(complete.uptime90d).toBe(100);
+		expect(complete.dailyStatus.find((row) => row.date === date)).toMatchObject({
+			status: 'up',
+			total_checks: 3,
+			unconfirmed_checks: 1,
+			inferred_isolated_checks: 0,
+			legacy_down_checks: 0
+		});
+		const partial = await getMonitorHistory(db, 'partial');
+		// Classify the retained singleton without replacing the 100-check total or guessing the other failure.
+		expect(partial.uptime90d).toBe(99);
+		expect(partial.dailyStatus.find((row) => row.date === date)).toMatchObject({
+			status: 'degraded',
+			total_checks: 100,
+			unconfirmed_checks: 1,
+			legacy_down_checks: 1,
+			confirmed_down_checks: 0
+		});
+		const inferred = await getMonitorHistory(db, 'single');
+		expect(inferred.uptime90d).toBe(100);
+		expect(inferred.dailyStatus.find((row) => row.date === date)).toMatchObject({
+			status: 'up',
+			total_checks: 1440,
+			unconfirmed_checks: 1,
+			inferred_isolated_checks: 1,
+			legacy_down_checks: 0,
+			downtime_minutes: 0
+		});
+		const multiple = await getMonitorHistory(db, 'multiple');
+		expect(multiple.dailyStatus.find((row) => row.date === date)).toMatchObject({
+			status: 'degraded',
+			unconfirmed_checks: 0,
+			inferred_isolated_checks: 0,
+			legacy_down_checks: 2,
+			confirmed_down_checks: 0
+		});
+		const unknown = await getMonitorHistory(db, 'unknown');
+		expect(unknown.uptime90d).toBe(90);
+		expect(unknown.dailyStatus.find((row) => row.date === date)).toMatchObject({
+			status: 'degraded',
+			inferred_isolated_checks: 0,
+			legacy_down_checks: 1
+		});
+		sqlite.exec('DELETE FROM checks');
+		expect(await getMonitorHistory(db, 'complete')).toEqual(complete);
+		expect(await getMonitorHistory(db, 'single')).toEqual(inferred);
+	});
+});
+
 describe('public status data', () => {
+	it('shows an isolated failure as a green day while retaining its detail and live degraded state', async () => {
+		const { sqlite, db } = fixture();
+		const yesterday = day(-1);
+		sqlite
+			.query(
+				"INSERT INTO checks(monitor_id,status,observed_status,checked_at,error_message) VALUES ('one','degraded','down',?,'Network timeout')"
+			)
+			.run(yesterday + ' 23:59:00');
+		const history = await getMonitorHistory(db, 'one');
+		expect(history.uptime90d).toBe(100);
+		expect(history.dailyStatus.find((row) => row.date === yesterday)).toMatchObject({
+			status: 'up',
+			total_checks: 1,
+			unconfirmed_checks: 1,
+			confirmed_down_checks: 0,
+			legacy_down_checks: 0,
+			other_degraded_checks: 0
+		});
+		const detail = await getGroupWithStatusBySlug(db, 'public');
+		expect(detail?.monitors.find((monitor) => monitor.id === 'one')?.current_status).toBe(
+			'degraded'
+		);
+		await aggregateDailyStatus(db);
+		sqlite.exec('DELETE FROM checks');
+		expect(await getMonitorHistory(db, 'one')).toEqual(history);
+	});
+
+	it('keeps slow, soft assertion, and unconfirmed checks visible without reducing availability after aggregation', async () => {
+		const { sqlite, db } = fixture();
+		const yesterday = day(-1);
+		const insert = sqlite.query(
+			'INSERT INTO checks(monitor_id,status,observed_status,checked_at,is_slow) VALUES (?,?,?,?,?)'
+		);
+		insert.run('one', 'up', 'up', yesterday + ' 01:00:00', 0);
+		insert.run('one', 'degraded', 'down', yesterday + ' 02:00:00', 0);
+		insert.run('one', 'degraded', 'degraded', yesterday + ' 03:00:00', 1);
+		insert.run('one', 'down', 'down', yesterday + ' 04:00:00', 0);
+		insert.run('one', 'down', null, yesterday + ' 05:00:00', 0);
+		insert.run('two', 'degraded', 'down', yesterday + ' 02:00:00', 0);
+		insert.run('two', 'degraded', 'degraded', yesterday + ' 03:00:00', 1);
+		insert.run('two', 'degraded', 'degraded', yesterday + ' 04:00:00', 0);
+		const history = await getMonitorHistory(db, 'one');
+		expect(history.uptime90d).toBe(60);
+		expect(history.dailyStatus.find((row) => row.date === yesterday)).toMatchObject({
+			status: 'down',
+			total_checks: 5,
+			confirmed_down_checks: 1,
+			unconfirmed_checks: 1,
+			slow_checks: 1,
+			legacy_down_checks: 1,
+			other_degraded_checks: 0
+		});
+		const degradedHistory = await getMonitorHistory(db, 'two');
+		expect(degradedHistory.uptime90d).toBe(100);
+		expect(degradedHistory.dailyStatus.find((row) => row.date === yesterday)).toMatchObject({
+			status: 'degraded',
+			total_checks: 3,
+			confirmed_down_checks: 0,
+			unconfirmed_checks: 1,
+			slow_checks: 1,
+			legacy_down_checks: 0,
+			other_degraded_checks: 1
+		});
+		const overview = (await getPublicGroupSummaries(db, 'overview')).find(
+			(group) => group.id === 'public'
+		)!;
+		const detail = await getGroupWithStatusBySlug(db, 'public', 'detail');
+		expect(overview.uptime_90d).toBe(80);
+		expect(detail?.uptime_90d).toBe(80);
+		await aggregateDailyStatus(db);
+		sqlite.exec('DELETE FROM checks');
+		expect(await getMonitorHistory(db, 'one')).toEqual(history);
+		expect(await getMonitorHistory(db, 'two')).toEqual(degradedHistory);
+		expect(
+			(await getPublicGroupSummaries(db, 'aggregated')).find((group) => group.id === 'public')
+				?.uptime_90d
+		).toBe(80);
+	});
+
+	it('counts degraded responses as available in the admin 24-hour uptime', async () => {
+		const { sqlite, db } = fixture();
+		const checkedAt = new Date().toISOString();
+		const insert = sqlite.query(
+			"INSERT INTO checks(monitor_id,status,checked_at) VALUES ('one',?,?)"
+		);
+		for (const status of ['up', 'degraded', 'degraded', 'down']) insert.run(status, checkedAt);
+		expect(await getUptime24h(db, 'one')).toBe(75);
+	});
+
 	it('preserves aggregate history after raw cleanup and avoids overlap double counting', async () => {
 		const { sqlite, db } = fixture();
 		const insert =
@@ -79,7 +422,7 @@ describe('public status data', () => {
 		expect(history.dailyStatus).toHaveLength(90);
 		expect(history.dailyStatus[0].date).toBe(day(-89));
 		expect(history.dailyStatus.find((row) => row.date === day(-20))?.status).toBe('down');
-		expect(history.dailyStatus.at(-1)?.status).toBe('down');
+		expect(history.dailyStatus.at(-1)?.status).toBe('degraded');
 		expect(history.dailyStatus[0].status).toBe('none');
 	});
 
@@ -100,7 +443,7 @@ describe('public status data', () => {
 		const history = await getMonitorHistory(db, 'one');
 		expect(history.uptime90d).toBe(95.45); // 21 up / 22 total
 		expect(history.dailyStatus.find((row) => row.date === day(-3))).toMatchObject({
-			status: 'down',
+			status: 'degraded',
 			downtime_minutes: 720
 		});
 		expect(history.dailyStatus.find((row) => row.date === day(-2))?.status).toBe('up');
@@ -132,7 +475,7 @@ describe('public status data', () => {
 		check.run('up', day(0) + ' 00:00:00');
 		const history = await getMonitorHistory(db, 'one');
 		expect(history.uptime90d).toBe(66.67);
-		expect(history.dailyStatus[0].status).toBe('down');
+		expect(history.dailyStatus[0].status).toBe('degraded');
 		expect(history.dailyStatus.at(-1)?.status).toBe('up');
 		expect((await getMonitorHistory(db, 'two')).uptime90d).toBe(100);
 	});
@@ -145,7 +488,7 @@ describe('public status data', () => {
 		expect(groups.map((group) => group.id)).toEqual(['empty', 'public']);
 		const group = groups.find((group) => group.id === 'public')!;
 		expect(group.monitors).toHaveLength(2);
-		expect(group.overall_status).toBe('partial_outage');
+		expect(group.overall_status).toBe('degraded');
 		expect(group.uptime_90d).toBe(50);
 		expect(group.monitors.every((monitor) => !('daily_status' in monitor))).toBe(true);
 		expect(groups[0].uptime_90d).toBe(100);

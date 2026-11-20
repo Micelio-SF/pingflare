@@ -39,37 +39,63 @@ export async function runCronChecks(db: D1Database, options: CronOptions = {}) {
 
 	const results = await Promise.allSettled(
 		monitors.map(async (monitor) => {
-			if (!isMonitorDue(monitor.last_checked_at ?? undefined, monitor.interval_seconds, Date.now()))
+			const attemptStartedAt = Date.now();
+			const interval = monitor.previous_observed_status === 'down' ? 30 : monitor.interval_seconds;
+			if (!isMonitorDue(monitor.last_checked_at ?? undefined, interval, attemptStartedAt))
 				return null;
 			const previousStatus: MonitorStatus | null = monitor.previous_status;
 
 			const result = await runCheck(monitor);
+			const previousStartedAt = monitor.last_checked_at
+				? Date.parse(monitor.last_checked_at.replace(' ', 'T').replace(/Z?$/, 'Z'))
+				: NaN;
+			// Confirmation expires after two scheduled ticks plus the request timeout.
+			const confirmsFailure =
+				monitor.previous_observed_status === 'down' &&
+				attemptStartedAt - previousStartedAt >= 30_000 &&
+				attemptStartedAt - previousStartedAt <= 120_000 + monitor.timeout_ms;
+			const publicStatus =
+				result.status === 'down' && !confirmsFailure ? 'degraded' : result.status;
+			// CF-Ray identifies the edge that answered the probe, not the cron execution location.
+			const checkedFrom = result.cfRay?.match(/-([a-z]{3})$/i)?.[1].toUpperCase() ?? null;
 			console.info({
 				event: 'monitor_completed',
 				run_id: runId,
 				monitor_id: monitor.id,
-				status: result.status,
+				status: publicStatus,
+				observed_status: result.status,
+				cf_ray: result.cfRay ?? null,
+				edge_colo: checkedFrom,
 				status_code: result.statusCode,
 				duration_ms: result.responseTimeMs
 			});
 			await insertCheck(
 				db,
 				monitor.id,
-				result.status,
+				publicStatus,
 				result.responseTimeMs,
 				result.statusCode,
 				result.errorMessage,
-				null // checked_from - could add colo info later
+				checkedFrom,
+				result.status,
+				result.cfRay ?? null,
+				runId,
+				new Date(attemptStartedAt).toISOString().replace('T', ' ').slice(0, 19),
+				result.isSlow ?? false
 			);
 
 			// Send notifications on status change
-			if (previousStatus !== result.status) {
+			const unconfirmedRecovery =
+				previousStatus === 'degraded' &&
+				monitor.previous_observed_status === 'down' &&
+				publicStatus === 'up';
+			if (previousStatus !== publicStatus && !unconfirmedRecovery) {
 				try {
 					await sendNotifications(
 						db,
 						monitor,
 						previousStatus,
-						result.status,
+						publicStatus,
 						null, // incident tracking to be implemented
 						'mailto:admin@pingflare.app'
 					);
@@ -81,7 +107,9 @@ export async function runCronChecks(db: D1Database, options: CronOptions = {}) {
 			return {
 				monitorId: monitor.id,
 				name: monitor.name,
-				...result
+				...result,
+				status: publicStatus,
+				observedStatus: result.status
 			};
 		})
 	);
@@ -127,6 +155,6 @@ export async function runCronChecks(db: D1Database, options: CronOptions = {}) {
 
 export async function runDailyMaintenance(db: D1Database): Promise<void> {
 	await aggregateDailyStatus(db);
-	await cleanupOldChecks(db, 7);
+	await cleanupOldChecks(db, 30);
 	await cleanupOldDailyStatus(db, 365);
 }

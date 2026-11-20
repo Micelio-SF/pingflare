@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { Database } from 'bun:sqlite';
 import { readFileSync } from 'node:fs';
 import { runCronChecks } from './cron';
@@ -14,6 +14,12 @@ function fixture() {
 	databases.push(sqlite);
 	sqlite.exec(
 		readFileSync(new URL('../../../migrations/0001_schema.sql', import.meta.url), 'utf8')
+	);
+	sqlite.exec(
+		readFileSync(
+			new URL('../../../migrations/0007_check_confirmation.sql', import.meta.url),
+			'utf8'
+		)
 	);
 	const script = JSON.stringify({
 		steps: [
@@ -169,6 +175,195 @@ describe('cron partitions', () => {
 	});
 });
 
+describe('failure confirmation', () => {
+	it('preserves each failed POST attempt, confirms on the next cron, and notifies public transitions', async () => {
+		const { sqlite, db } = fixture();
+		const script = JSON.stringify({
+			steps: [{ name: 'write', request: { method: 'POST', url: 'https://probe.example.com' } }]
+		});
+		sqlite.exec("UPDATE monitors SET active = 0 WHERE id != 'a'");
+		sqlite
+			.query("UPDATE monitors SET script = ?, interval_seconds = 300 WHERE id = 'a'")
+			.run(script);
+		sqlite.exec(`INSERT INTO notification_channels(id,type,name,config) VALUES
+			('webhook','webhook','Changes','{"url":"https://notify.example.com","method":"POST"}');
+			INSERT INTO monitor_notifications(monitor_id,channel_id) VALUES ('a','webhook');`);
+		let now = Date.now();
+		const startedAt = now;
+		const clock = spyOn(Date, 'now').mockImplementation(() => now);
+		const originalFetch = globalThis.fetch;
+		const requests: string[] = [];
+		const notifications: Record<string, unknown>[] = [];
+		let isHealthy = false;
+		globalThis.fetch = (async (input, init) => {
+			if (String(input) === 'https://notify.example.com') {
+				notifications.push(JSON.parse(String(init?.body)));
+				return new Response(null, { status: 200 });
+			}
+			requests.push(init?.method ?? 'GET');
+			if (!isHealthy) throw new Error('Network timeout');
+			return new Response(null, { status: 200, headers: { 'cf-ray': 'abcdef-SCL' } });
+		}) as typeof fetch;
+		try {
+			await runCronChecks(db);
+			expect(requests).toEqual(['POST']);
+			expect(notifications).toHaveLength(0);
+			expect(
+				sqlite
+					.query(
+						"SELECT status,observed_status FROM checks WHERE monitor_id = 'a' ORDER BY id DESC LIMIT 1"
+					)
+					.get()
+			).toEqual({ status: 'degraded', observed_status: 'down' });
+			now = startedAt + 29000;
+			expect((await runCronChecks(db)).checked).toBe(0);
+			now = startedAt + 60000;
+			await runCronChecks(db);
+			expect(requests).toEqual(['POST', 'POST']);
+			expect(notifications).toMatchObject([{ previous_status: 'degraded', status: 'down' }]);
+			now += 60000;
+			isHealthy = true;
+			await runCronChecks(db);
+			expect(requests).toEqual(['POST', 'POST', 'POST']);
+			expect(notifications).toMatchObject([
+				{ previous_status: 'degraded', status: 'down' },
+				{ previous_status: 'down', status: 'up' }
+			]);
+			expect(
+				sqlite
+					.query(
+						"SELECT status,observed_status,error_message FROM checks WHERE monitor_id = 'a' AND observed_status IS NOT NULL ORDER BY id"
+					)
+					.all()
+			).toEqual([
+				{
+					status: 'degraded',
+					observed_status: 'down',
+					error_message: expect.stringContaining('Network timeout')
+				},
+				{
+					status: 'down',
+					observed_status: 'down',
+					error_message: expect.stringContaining('Network timeout')
+				},
+				{ status: 'up', observed_status: 'up', error_message: null }
+			]);
+			expect(
+				sqlite
+					.query("SELECT cf_ray FROM checks WHERE monitor_id = 'a' ORDER BY id DESC LIMIT 1")
+					.get()
+			).toEqual({ cf_ray: 'abcdef-SCL' });
+		} finally {
+			globalThis.fetch = originalFetch;
+			clock.mockRestore();
+		}
+	});
+
+	it.each([
+		{ label: 'a successful check', status: 'up', observed: 'up', age: 60000 },
+		{ label: 'a slow check', status: 'degraded', observed: 'degraded', age: 60000 },
+		{ label: 'an unclassified historical failure', status: 'down', observed: null, age: 60000 },
+		{ label: 'a monitoring gap', status: 'degraded', observed: 'down', age: 3600000 }
+	])('does not confirm a failure after $label', async ({ status, observed, age }) => {
+		const { sqlite, db } = fixture();
+		const now = Date.now();
+		sqlite.exec("UPDATE monitors SET active = 0 WHERE id != 'a'");
+		const insert = sqlite.query(
+			'INSERT INTO checks(monitor_id,status,observed_status,checked_at) VALUES (?,?,?,?)'
+		);
+		insert.run(
+			'a',
+			'degraded',
+			'down',
+			new Date(now - age - 60000).toISOString().replace('T', ' ').slice(0, 19)
+		);
+		insert.run(
+			'a',
+			status,
+			observed,
+			new Date(now - age).toISOString().replace('T', ' ').slice(0, 19)
+		);
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => {
+			throw new Error('Network timeout');
+		}) as typeof fetch;
+		try {
+			await runCronChecks(db);
+			expect(
+				sqlite
+					.query(
+						"SELECT status,observed_status FROM checks WHERE monitor_id = 'a' ORDER BY id DESC LIMIT 1"
+					)
+					.get()
+			).toEqual({ status: 'degraded', observed_status: 'down' });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it('does not announce a recovery when an unconfirmed failure succeeds on the next cron', async () => {
+		const { sqlite, db } = fixture();
+		sqlite.exec("UPDATE monitors SET active = 0 WHERE id != 'a'");
+		sqlite
+			.query(
+				"INSERT INTO checks(monitor_id,status,observed_status,checked_at) VALUES ('a','degraded','down',?)"
+			)
+			.run(new Date(Date.now() - 60000).toISOString().replace('T', ' ').slice(0, 19));
+		sqlite.exec(`INSERT INTO notification_channels(id,type,name,config) VALUES
+			('webhook','webhook','Changes','{"url":"https://notify.example.com","method":"POST"}');
+			INSERT INTO monitor_notifications(monitor_id,channel_id) VALUES ('a','webhook');`);
+		const originalFetch = globalThis.fetch;
+		const requests: string[] = [];
+		globalThis.fetch = (async (input) => {
+			requests.push(String(input));
+			return new Response(null, { status: 200 });
+		}) as typeof fetch;
+		try {
+			await runCronChecks(db);
+			expect(requests).toEqual(['https://example.com']);
+			expect(
+				sqlite
+					.query(
+						"SELECT status,observed_status FROM checks WHERE monitor_id = 'a' ORDER BY id DESC LIMIT 1"
+					)
+					.get()
+			).toEqual({ status: 'up', observed_status: 'up' });
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it('schedules from attempt start when a slow request crosses the next minute', async () => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(
+			"UPDATE monitors SET active = 0 WHERE id != 'a'; UPDATE monitors SET interval_seconds = 60 WHERE id = 'a'"
+		);
+		let now = Math.floor(Date.now() / 1000) * 1000;
+		const startedAt = now;
+		const clock = spyOn(Date, 'now').mockImplementation(() => now);
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = (async () => {
+			now += 15000;
+			return new Response(null, { status: 200 });
+		}) as typeof fetch;
+		try {
+			await runCronChecks(db);
+			const check = sqlite
+				.query("SELECT checked_at FROM checks WHERE monitor_id = 'a' ORDER BY id DESC LIMIT 1")
+				.get() as { checked_at: string };
+			const timestamp = check.checked_at.includes('T')
+				? check.checked_at
+				: check.checked_at.replace(' ', 'T') + 'Z';
+			expect(Date.parse(timestamp)).toBe(startedAt);
+			now = startedAt + 60000;
+			expect((await runCronChecks(db)).checked).toBe(1);
+		} finally {
+			globalThis.fetch = originalFetch;
+			clock.mockRestore();
+		}
+	});
+});
+
 describe('scheduled lifecycle', () => {
 	function controller(cron: string) {
 		return { cron, scheduledTime: Date.now(), noRetry() {} } as ScheduledController;
@@ -198,6 +393,10 @@ describe('scheduled lifecycle', () => {
 		const insert = sqlite.query('INSERT INTO checks(monitor_id,status,checked_at) VALUES (?,?,?)');
 		insert.run('a', 'up', yesterday + ' 01:00:00');
 		insert.run('a', 'down', yesterday + ' 02:00:00');
+		const tenDaysAgo = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+		const thirtyOneDaysAgo = new Date(Date.now() - 31 * 86400000).toISOString().slice(0, 10);
+		insert.run('a', 'up', tenDaysAgo + ' 01:00:00');
+		insert.run('a', 'up', thirtyOneDaysAgo + ' 01:00:00');
 		sqlite.exec(
 			"INSERT INTO daily_status(monitor_id,date,total_checks) VALUES ('a','2000-01-01',1)"
 		);
@@ -213,7 +412,12 @@ describe('scheduled lifecycle', () => {
 			expect(
 				sqlite.query('SELECT date,total_checks,up_checks,down_checks FROM daily_status').all()
 			).toEqual([{ date: yesterday, total_checks: 2, up_checks: 1, down_checks: 1 }]);
-			expect(sqlite.query('SELECT COUNT(*) AS count FROM checks').get()).toEqual({ count: 2 });
+			expect(sqlite.query('SELECT COUNT(*) AS count FROM checks').get()).toEqual({ count: 3 });
+			expect(
+				sqlite
+					.query('SELECT COUNT(*) AS count FROM checks WHERE checked_at LIKE ?')
+					.get(tenDaysAgo + '%')
+			).toEqual({ count: 1 });
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

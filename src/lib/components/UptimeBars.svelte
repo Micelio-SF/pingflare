@@ -67,6 +67,33 @@
 	let tooltipX = $state(0);
 	let tooltipY = $state(0);
 
+	function dayDetails(day: DailyStatus): string {
+		if (day.status === 'none') return 'No checks recorded';
+		const checkWord = (count: number) => (count === 1 ? 'check' : 'checks');
+		const details = [`${day.total_checks} ${checkWord(day.total_checks)}`];
+		if (day.confirmed_down_checks)
+			details.push(
+				`${day.confirmed_down_checks} confirmed failed ${checkWord(day.confirmed_down_checks)}`
+			);
+		if (day.unconfirmed_checks)
+			details.push(
+				`${day.unconfirmed_checks} unconfirmed failed ${checkWord(day.unconfirmed_checks)}`
+			);
+		if (day.slow_checks)
+			details.push(`${day.slow_checks} slow ${day.slow_checks === 1 ? 'response' : 'responses'}`);
+		if (day.other_degraded_checks)
+			details.push(
+				`${day.other_degraded_checks} other degraded ${checkWord(day.other_degraded_checks)}`
+			);
+		if (day.legacy_down_checks)
+			details.push(
+				`${day.legacy_down_checks} historical failed ${checkWord(day.legacy_down_checks)}; confirmation unavailable`
+			);
+		if (day.inferred_isolated_checks)
+			details.push('isolated historical failure inferred from daily totals; sequence unavailable');
+		return details.join(', ');
+	}
+
 	function handleMouseEnter(day: DailyStatus, event: MouseEvent) {
 		hoveredDay = day;
 		const rect = (event.target as HTMLElement).getBoundingClientRect();
@@ -96,14 +123,23 @@
 				)}"
 				onmouseenter={(e) => handleMouseEnter(day, e)}
 				onmouseleave={handleMouseLeave}
-				aria-label="{formatDate(day.date)}: {day.status}"
+				onfocus={(e) => {
+					hoveredDay = day;
+					const rect = e.currentTarget.getBoundingClientRect();
+					tooltipX = rect.left + rect.width / 2;
+					tooltipY = rect.top;
+				}}
+				onblur={handleMouseLeave}
+				aria-label="{formatDate(day.date)}: {getStatusText(
+					day.status === 'none' ? null : day.status
+				)}. {dayDetails(day)}"
 			></button>
 		{/each}
 	</div>
 
 	<div class="flex items-center justify-between text-xs text-gray-500">
 		<span>90 days ago</span>
-		<span>{uptimePercent.toFixed(2)}% uptime</span>
+		<span>{uptimePercent.toFixed(2)}% availability</span>
 		<span>Today</span>
 	</div>
 </div>
@@ -129,10 +165,11 @@
 				{#if hoveredDay.downtime_minutes > 0}
 					<span class="text-gray-500">
 						{Math.floor(hoveredDay.downtime_minutes / 60)}h {hoveredDay.downtime_minutes % 60}m
-						downtime
+						estimated downtime
 					</span>
 				{/if}
 			</div>
+			<p class="mt-2 max-w-72 text-sm text-gray-600">{dayDetails(hoveredDay)}.</p>
 		{/if}
 	</div>
 {/if}
