@@ -186,23 +186,20 @@ export async function getUptime24h(db: D1Database, monitorId: string): Promise<n
 		.replace('T', ' ')
 		.slice(0, 19);
 
-	const total = await db
-		.prepare('SELECT COUNT(*) as count FROM checks WHERE monitor_id = ? AND checked_at > ?')
-		.bind(monitorId, twentyFourHoursAgo)
-		.first<{ count: number }>();
-
-	const up = await db
+	const counts = await db
 		.prepare(
-			"SELECT COUNT(*) as count FROM checks WHERE monitor_id = ? AND checked_at > ? AND status != 'down'"
+			`SELECT COUNT(*) AS total_checks,
+			 COALESCE(SUM(CASE WHEN status != 'down' THEN 1 ELSE 0 END), 0) AS up_checks
+			 FROM checks WHERE monitor_id = ? AND checked_at > ?`
 		)
 		.bind(monitorId, twentyFourHoursAgo)
-		.first<{ count: number }>();
+		.first<{ total_checks: number; up_checks: number }>();
 
-	if (!total?.count || total.count === 0) {
+	if (!counts?.total_checks) {
 		return 100;
 	}
 
-	return Math.round(((up?.count ?? 0) / total.count) * 10000) / 100;
+	return Math.round((counts.up_checks / counts.total_checks) * 10000) / 100;
 }
 
 export async function cleanupOldChecks(

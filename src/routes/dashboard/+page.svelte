@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { startDashboardPolling } from '$lib/dashboard-polling';
 	import type { MonitorWithStatus } from '$lib/types/monitor';
 	import type { PageData } from './$types';
 	import { AppShell, Container, PageHeader } from '$lib/components/layout';
@@ -11,16 +13,24 @@
 	let loading = $state(true);
 	let error = $state('');
 	let runningChecks = $state(false);
-	let refreshInterval: ReturnType<typeof setInterval> | null = null;
 
-	async function loadMonitors() {
+	async function loadMonitors(includeUptime = true): Promise<boolean> {
 		try {
-			const response = await fetch('/api/monitors');
+			const response = await fetch(
+				includeUptime ? '/api/monitors' : '/api/monitors?include_uptime=false'
+			);
 			if (!response.ok) throw new Error('Failed to load monitors');
-			monitors = await response.json();
+			const updatedMonitors: MonitorWithStatus[] = await response.json();
+			const previousUptimes = new Map(monitors.map((monitor) => [monitor.id, monitor.uptime_24h]));
+			monitors = updatedMonitors.map((monitor) => ({
+				...monitor,
+				uptime_24h: includeUptime ? monitor.uptime_24h : (previousUptimes.get(monitor.id) ?? null)
+			}));
 			error = '';
+			return true;
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load monitors';
+			return false;
 		} finally {
 			loading = false;
 		}
@@ -50,13 +60,7 @@
 		}
 	}
 
-	$effect(() => {
-		loadMonitors();
-		refreshInterval = setInterval(loadMonitors, 30000);
-		return () => {
-			if (refreshInterval) clearInterval(refreshInterval);
-		};
-	});
+	onMount(() => startDashboardPolling(loadMonitors));
 
 	let upCount = $derived(monitors.filter((m) => m.current_status === 'up').length);
 	let downCount = $derived(monitors.filter((m) => m.current_status === 'down').length);

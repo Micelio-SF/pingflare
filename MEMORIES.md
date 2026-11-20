@@ -239,3 +239,6 @@ User Preferences
 - Nov 2026 diagnosis: isolated Micelio timeouts had no corresponding origin request; separate deployment 502s were real. Synchronous PDF parsing blocked the single API event loop. Coolify 4.7.6 Compose stops old stack before start; rolling APIs require independent Dockerfile resources. Code and migration are prepared locally; production rollout still pending.
 
 - Public history projection deliberately exposes only date/status/downtime_minutes. Never include isolated-failure counters or inference notes in public HTML, Svelte payloads, or JSON. Admin history keeps diagnostic evidence.
+
+- Dashboard polling: current monitor state refreshes every 30s while visible; 24h availability refreshes every 5m after a successful full response. GET /api/monitors?include_uptime=false skips aggregates and returns null availability; the dashboard preserves previous percentages. Hidden tabs pause requests and refresh on return.
+- D1 free-tier incident: two per-monitor 24h COUNT queries exhausted daily row reads while the dashboard was left open; use one COUNT/SUM aggregate. Quota exhaustion also blocks remote migrations and therefore the deploy command before Worker publication.
