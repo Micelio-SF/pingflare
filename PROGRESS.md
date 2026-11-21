@@ -447,3 +447,8 @@ Confirm outages without hiding isolated failures.
 - Separate observed/public states, confirm consecutive failures, retry next scheduled tick, retain 30d raw evidence and correlate run ID/CF-Ray. Preserve Ray IDs when body reading fails.
 - Show isolated failures in plain green public bars; restrict evidence counts and inference notes to admin data, slow responses and unknown historical sequences in yellow, and confirmed consecutive failures in red. Reclassify retained historical neighbors and infer daily-only one-minute singletons explicitly. Align overview/detail availability; retain unknown historical confirmation and label downtime estimates.
 - Apply migration 0007 locally; 123 tests pass, build and type check pass (0 errors, 11 existing warnings); changed logic lint passes. Full ESLint retains 14 pre-existing each-key errors. Verify local public UI/tooltips against isolated D1 fixtures. No production deployment or commit.
+
+Reduce dashboard D1 reads while keeping current status fresh.
+- Combine 24h availability counts into one aggregate and add an authenticated monitor-list option that skips availability reads.
+- Poll current status every 30s and availability every 5m; preserve percentages between full refreshes, pause hidden tabs, refresh on return and suppress overlapping poll requests.
+- Verify 129 unit tests, SQL/API baseline regressions, production build, changed-file lint/format, Wrangler dry-run and type check (0 errors, 11 existing warnings). Local browser confirms lightweight polling preserves percentages. Deployment deferred until after the D1 daily quota resets.

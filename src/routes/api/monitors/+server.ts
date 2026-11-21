@@ -6,7 +6,7 @@ import type { CreateMonitorInput, MonitorWithStatus } from '$lib/types/monitor';
 import type { MonitorNotificationInput } from '$lib/types/notification';
 import { validateScript } from '$lib/server/checkers/script';
 
-export const GET: RequestHandler = async ({ platform, locals }) => {
+export const GET: RequestHandler = async ({ platform, locals, url }) => {
 	if (!locals.user) {
 		return json({ error: 'Unauthorized' }, { status: 401 });
 	}
@@ -16,12 +16,13 @@ export const GET: RequestHandler = async ({ platform, locals }) => {
 	}
 
 	const db = platform.env.DB;
+	const includeUptime = url.searchParams.get('include_uptime') !== 'false';
 	const monitors = await getAllMonitors(db);
 
 	const monitorsWithStatus: MonitorWithStatus[] = await Promise.all(
 		monitors.map(async (monitor) => {
 			const lastCheck = await getLastCheck(db, monitor.id);
-			const uptime24h = await getUptime24h(db, monitor.id);
+			const uptime24h = includeUptime ? await getUptime24h(db, monitor.id) : null;
 
 			return {
 				...monitor,

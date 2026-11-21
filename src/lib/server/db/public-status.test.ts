@@ -13,6 +13,7 @@ import { getPublicIncidents, groupIncidentDates } from './public-incidents';
 import { readD1 } from './diagnostics';
 import { aggregateDailyStatus } from './status';
 import { getUptime24h } from './monitors';
+import { GET as getMonitors } from '../../../routes/api/monitors/+server';
 
 const databases: Database[] = [];
 let info: ReturnType<typeof spyOn<typeof console, 'info'>>;
@@ -442,14 +443,25 @@ describe('public status data', () => {
 		).toBe(80);
 	});
 
-	it('counts degraded responses as available in the admin 24-hour uptime', async () => {
-		const { sqlite, db } = fixture();
-		const checkedAt = new Date().toISOString();
-		const insert = sqlite.query(
-			"INSERT INTO checks(monitor_id,status,checked_at) VALUES ('one',?,?)"
-		);
-		for (const status of ['up', 'degraded', 'degraded', 'down']) insert.run(status, checkedAt);
-		expect(await getUptime24h(db, 'one')).toBe(75);
+	it('computes admin availability in one read, counting degraded checks within the monitor window', async () => {
+		const now = Date.parse('2026-11-20T12:00:00Z');
+		const clock = spyOn(Date, 'now').mockReturnValue(now);
+		try {
+			const { sqlite, db, calls } = fixture();
+			const insert = sqlite.query(
+				'INSERT INTO checks(monitor_id,status,checked_at) VALUES (?,?,?)'
+			);
+			for (const status of ['up', 'degraded', 'degraded', 'down'])
+				insert.run('one', status, '2026-11-20 11:59:00');
+			insert.run('one', 'down', '2026-11-19 11:59:59');
+			insert.run('one', 'down', '2026-11-19 12:00:00');
+			insert.run('two', 'down', '2026-11-20 11:59:00');
+			expect(await getUptime24h(db, 'one')).toBe(75);
+			expect(calls()).toBe(1);
+			expect(await getUptime24h(db, 'secret')).toBe(100);
+		} finally {
+			clock.mockRestore();
+		}
 	});
 
 	it('preserves aggregate history after raw cleanup and avoids overlap double counting', async () => {
@@ -610,5 +622,49 @@ describe('public status data', () => {
 		});
 		expect(JSON.stringify(logged)).not.toContain('private-value');
 		expect(JSON.stringify(logged)).not.toContain('SELECT');
+	});
+});
+
+describe('admin monitor list refresh', () => {
+	function event(db: D1Database, query = '', authenticated = true) {
+		return {
+			url: new URL('https://status.micelio.ai/api/monitors' + query),
+			locals: { user: authenticated ? { id: 'admin', role: 'admin' } : null },
+			platform: { env: { DB: db } }
+		} as unknown as Parameters<typeof getMonitors>[0];
+	}
+
+	it('refreshes current states without availability reads when opted out, preserving the full default', async () => {
+		const { sqlite, db, calls } = fixture();
+		const insert = sqlite.query('INSERT INTO checks(monitor_id,status,checked_at) VALUES (?,?,?)');
+		const now = new Date().toISOString();
+		insert.run('one', 'up', now);
+		insert.run('one', 'down', now);
+		insert.run('two', 'degraded', now);
+		const response = await getMonitors(event(db, '?include_uptime=false'));
+		expect(response.status).toBe(200);
+		const current = await response.json();
+		expect(calls()).toBeLessThanOrEqual(4);
+		expect(
+			current.every((monitor: { uptime_24h: number | null }) => monitor.uptime_24h === null)
+		).toBe(true);
+		expect(current.find((monitor: { id: string }) => monitor.id === 'two')).toMatchObject({
+			current_status: 'degraded',
+			last_check: { status: 'degraded' }
+		});
+		const full = await (await getMonitors(event(db))).json();
+		expect(full.find((monitor: { id: string }) => monitor.id === 'one').uptime_24h).toBe(50);
+		expect(full.find((monitor: { id: string }) => monitor.id === 'secret').uptime_24h).toBe(100);
+		expect(
+			full.map((monitor: Record<string, unknown>) => ({ ...monitor, uptime_24h: null }))
+		).toEqual(current);
+	});
+
+	it('keeps the lightweight refresh authenticated without touching D1', async () => {
+		const { db, calls } = fixture();
+		const response = await getMonitors(event(db, '?include_uptime=false', false));
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({ error: 'Unauthorized' });
+		expect(calls()).toBe(0);
 	});
 });
